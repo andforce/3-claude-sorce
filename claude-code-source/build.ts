@@ -20,7 +20,7 @@ const featureFlags: Record<string, boolean> = {
   BG_SESSIONS: false,
   BREAK_CACHE_COMMAND: false,
   BRIDGE_MODE: false,
-  BUDDY: false,
+  BUDDY: true,
   BUILDING_CLAUDE_APPS: false,
   BUILTIN_EXPLORE_PLAN_AGENTS: true,
   BYOC_ENVIRONMENT_RUNNER: false,

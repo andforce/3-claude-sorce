@@ -80,7 +80,7 @@ export function findBuddyTriggerPositions(text: string): Array<{
   start: number;
   end: number;
 }> {
-  if (!feature('BUDDY')) return [];
+  if (!true) return [];
   const triggers: Array<{
     start: number;
     end: number;
