@@ -1,143 +1,157 @@
-import React, { useEffect, useState } from 'react'
-import { Box, Text } from '../../ink.js'
+import * as React from 'react'
+import { Box, Text, useInput } from '../../ink.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getCompanion, companionUserId, roll } from '../../buddy/companion.js'
-import { renderSprite, renderFace } from '../../buddy/sprites.js'
-import { RARITY_COLORS, RARITY_STARS, type Companion } from '../../buddy/types.js'
+import { renderSprite } from '../../buddy/sprites.js'
+import { RARITY_COLORS, RARITY_STARS, type Companion, STAT_NAMES } from '../../buddy/types.js'
 import type { LocalJSXCommandContext } from '../../commands.js'
+import type { LocalJSXCommandOnDone } from '../../types/command.js'
 
-interface BuddyProps {
-  context: LocalJSXCommandContext
+function renderBar(value: number, max = 100, width = 10): string {
+  const filled = Math.round((value / max) * width)
+  const empty = width - filled
+  return '█'.repeat(filled) + '░'.repeat(empty)
 }
 
-function BuddyCommand({ context }: BuddyProps): React.ReactElement {
-  const [companion, setCompanion] = useState<Companion | undefined>(getCompanion())
-  const [justHatched, setJustHatched] = useState(false)
+interface CompanionCardProps {
+  companion: Companion
+}
 
-  useEffect(() => {
-    if (!companion) {
-      // Hatch a new companion
-      const userId = companionUserId()
-      const { bones } = roll(userId)
-
-      // Generate a name based on species
-      const defaultNames: Record<string, string> = {
-        duck: 'Quackers',
-        goose: 'Honk',
-        blob: 'Blobby',
-        cat: 'Whiskers',
-        dragon: 'Ember',
-        octopus: 'Inky',
-        owl: 'Hoot',
-        penguin: 'Waddle',
-        turtle: 'Shelly',
-        snail: 'Gary',
-        ghost: 'Casper',
-        axolotl: 'Bubbles',
-        capybara: 'Mochi',
-        cactus: 'Spike',
-        robot: 'Beep',
-        rabbit: 'Bunny',
-        mushroom: 'Shroom',
-        chonk: 'Chonky',
-      }
-
-      const name = defaultNames[bones.species] || 'Buddy'
-      const personality = `A ${bones.rarity} ${bones.species} with ${bones.eye} eyes${bones.shiny ? ' (shiny!)' : ''}`
-
-      const newCompanion: Companion = {
-        ...bones,
-        name,
-        personality,
-        hatchedAt: Date.now(),
-      }
-
-      // Save to config (only soul is persisted)
-      saveGlobalConfig(current => ({
-        ...current,
-        companion: {
-          name: newCompanion.name,
-          personality: newCompanion.personality,
-          hatchedAt: newCompanion.hatchedAt,
-        }
-      }))
-
-      setCompanion(newCompanion)
-      setJustHatched(true)
-    }
-  }, [companion])
-
-  if (!companion) {
-    return (
-      <Box padding={1}>
-        <Text color="info">Hatching your companion...</Text>
-      </Box>
-    )
-  }
-
-  const sprite = renderSprite(companion, 0)
-  const face = renderFace(companion)
+function CompanionCard({ companion }: CompanionCardProps) {
   const rarityColor = RARITY_COLORS[companion.rarity]
   const stars = RARITY_STARS[companion.rarity]
+  const sprite = renderSprite(companion, 0)
 
   return (
-    <Box flexDirection="column" padding={1} gap={1}>
-      {justHatched && (
-        <Box marginBottom={1}>
-          <Text color="success">✨ Your companion has hatched! ✨</Text>
-        </Box>
-      )}
+    <Box flexDirection="column" alignItems="center">
+      {/* Card border top */}
+      <Text>╭──────────────────────────────────────╮</Text>
+      <Text>│                                      │</Text>
 
-      <Box flexDirection="row" gap={2}>
-        {/* Sprite display */}
-        <Box flexDirection="column">
-          {sprite.map((line, i) => (
-            <Text key={i}>{line.replace(/{E}/g, companion.eye)}</Text>
-          ))}
-        </Box>
-
-        {/* Companion info */}
-        <Box flexDirection="column" gap={1}>
-          <Box>
-            <Text bold color={rarityColor}>
-              {companion.name} {stars}
-            </Text>
-            {companion.shiny && <Text color="warning"> ✨</Text>}
-          </Box>
-
-          <Text color="inactive">Species: {companion.species}</Text>
-          <Text color="inactive">Rarity: {companion.rarity}</Text>
-
-          {companion.hat !== 'none' && (
-            <Text color="inactive">Hat: {companion.hat}</Text>
-          )}
-
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold>Stats:</Text>
-            {Object.entries(companion.stats).map(([stat, value]) => (
-              <Text key={stat} color="inactive">
-                {stat}: {value}
-              </Text>
-            ))}
-          </Box>
-        </Box>
-      </Box>
-
-      <Box marginTop={1}>
-        <Text dimColor>
-          Your companion sits beside your input box and watches you work.
+      {/* Header: Rarity and Species */}
+      <Box width={38} justifyContent="space-between" paddingX={1}>
+        <Text>
+          {stars} <Text bold color={rarityColor}>{companion.rarity.toUpperCase()}</Text>
         </Text>
+        <Text bold>{companion.species.toUpperCase()}</Text>
       </Box>
 
-      <Box>
-        <Text dimColor>
-          It will occasionally react to your conversations with speech bubbles.
-        </Text>
+      <Text>│                                      │</Text>
+
+      {/* Sprite */}
+      <Box flexDirection="column" alignItems="center" width={38}>
+        {sprite.map((line, i) => (
+          <Text key={i}>{line.replace(/{E}/g, companion.eye)}</Text>
+        ))}
       </Box>
+
+      <Text>│                                      │</Text>
+
+      {/* Name */}
+      <Box width={38} justifyContent="center">
+        <Text bold>{companion.name}</Text>
+        {companion.shiny && <Text color="warning"> ✨</Text>}
+      </Box>
+
+      <Text>│                                      │</Text>
+
+      {/* Personality quote */}
+      <Box width={38} justifyContent="center" paddingX={1}>
+        <Text dimColor>"{companion.personality}"</Text>
+      </Box>
+
+      <Text>│                                      │</Text>
+
+      {/* Stats */}
+      {STAT_NAMES.map((statName) => {
+        const value = companion.stats[statName]
+        const bar = renderBar(value)
+        return (
+          <Box key={statName} width={38} paddingX={1}>
+            <Text color="inactive">{statName.padEnd(11)} {bar} {value.toString().padStart(3)}</Text>
+          </Box>
+        )
+      })}
+
+      <Text>│                                      │</Text>
+      <Text>╰──────────────────────────────────────╯</Text>
     </Box>
   )
 }
 
-export default function buddy(props: LocalJSXCommandContext): React.ReactElement {
-  return <BuddyCommand context={props} />
+interface BuddyViewProps {
+  companion: Companion
+  onDone: LocalJSXCommandOnDone
+}
+
+function BuddyView({ companion, onDone }: BuddyViewProps) {
+  // Listen for any input and exit immediately
+  useInput(() => {
+    onDone()
+  })
+
+  return (
+    <Box padding={1}>
+      <CompanionCard companion={companion} />
+    </Box>
+  )
+}
+
+export async function call(
+  onDone: LocalJSXCommandOnDone,
+  context: LocalJSXCommandContext,
+): Promise<React.ReactNode> {
+  // Try to get existing companion
+  let companion = getCompanion()
+
+  // If no companion exists, create one
+  if (!companion) {
+    const userId = companionUserId()
+    const { bones } = roll(userId)
+
+    const defaultNames: Record<string, string> = {
+      duck: 'Quackers',
+      goose: 'Honk',
+      blob: 'Blobby',
+      cat: 'Whiskers',
+      dragon: 'Ember',
+      octopus: 'Inky',
+      owl: 'Hoot',
+      penguin: 'Waddle',
+      turtle: 'Shelly',
+      snail: 'Gary',
+      ghost: 'Casper',
+      axolotl: 'Bubbles',
+      capybara: 'Mochi',
+      cactus: 'Spike',
+      robot: 'Beep',
+      rabbit: 'Bunny',
+      mushroom: 'Shroom',
+      chonk: 'Chonky',
+    }
+
+    const name = defaultNames[bones.species] || 'Buddy'
+    const personality = `A ${bones.rarity} ${bones.species} with ${bones.eye} eyes${bones.shiny ? ' (shiny!)' : ''}`
+
+    const newCompanion: Companion = {
+      ...bones,
+      name,
+      personality,
+      hatchedAt: Date.now(),
+    }
+
+    // Save to config
+    saveGlobalConfig(current => ({
+      ...current,
+      companion: {
+        name: newCompanion.name,
+        personality: newCompanion.personality,
+        hatchedAt: newCompanion.hatchedAt,
+      }
+    }))
+
+    companion = newCompanion
+  }
+
+  return <BuddyView companion={companion} onDone={onDone} />
 }
