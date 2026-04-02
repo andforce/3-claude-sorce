@@ -28,6 +28,7 @@ import {
   getVertexRegionForModel,
   isEnvTruthy,
 } from '../../utils/envUtils.js'
+import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
 
 /**
  * Environment variables for different client types:
@@ -136,7 +137,12 @@ export async function getAnthropicClient({
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
-  const resolvedFetch = buildFetch(fetchOverride, source)
+  // When using a Copilot model, intercept fetch to convert Anthropic → OpenAI format
+  const effectiveFetchOverride = model && isCopilotModel(model)
+    ? createCopilotFetchOverride(model)
+    : fetchOverride
+
+  const resolvedFetch = buildFetch(effectiveFetchOverride, source)
 
   const ARGS = {
     defaultHeaders,
@@ -150,6 +156,18 @@ export async function getAnthropicClient({
       fetch: resolvedFetch,
     }),
   }
+
+  // For Copilot models, skip all provider-specific client creation and use
+  // the standard Anthropic client with our fetch override that handles conversion
+  if (model && isCopilotModel(model)) {
+    const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
+      apiKey: 'copilot-placeholder-key',
+      ...ARGS,
+      ...(isDebugToStdErr() && { logger: createStderrLogger() }),
+    }
+    return new Anthropic(clientConfig)
+  }
+
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {
     const { AnthropicBedrock } = await import('@anthropic-ai/bedrock-sdk')
     // Use region override for small fast model if specified

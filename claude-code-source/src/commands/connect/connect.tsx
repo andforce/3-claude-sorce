@@ -7,9 +7,19 @@ import { Dialog } from '../../components/design-system/Dialog.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
 import { Select, OptionWithDescription } from '../../components/CustomSelect/index.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
+import { fetchCopilotModelsFromModelsDev } from '../../services/api/copilotClient.js'
 
-// Provider definitions
+const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz'
+const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code'
+const COPILOT_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
+const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+
 const PROVIDERS: OptionWithDescription<string>[] = [
+  {
+    value: 'github-copilot',
+    label: 'GitHub Copilot',
+    hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',
+  },
   {
     value: 'kimi-for-coding',
     label: 'Kimi For Coding',
@@ -61,6 +71,8 @@ type ConnectStep =
   | { type: 'confirm'; providerId: string; apiKey: string }
   | { type: 'success'; providerId: string }
   | { type: 'error'; error: string }
+  | { type: 'copilot-oauth'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
+  | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
 
 function ApiKeyInput({
   providerId,
@@ -173,6 +185,169 @@ function ConfirmDialog({
   )
 }
 
+function CopilotOAuthDialog({
+  userCode,
+  verificationUri,
+  onPollingStart,
+  onCancel,
+}: {
+  userCode: string
+  verificationUri: string
+  onPollingStart: () => void
+  onCancel: () => void
+}) {
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      onPollingStart()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [])
+
+  useInput((_, key) => {
+    if (key.escape) {
+      onCancel()
+      return
+    }
+  })
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold color="cyan">GitHub Copilot Authorization</Text>
+      <Text>
+        1. Open: <Text color="cyan" underline>{verificationUri}</Text>
+      </Text>
+      <Text>
+        2. Enter code: <Text bold color="yellow">{userCode}</Text>
+      </Text>
+      <Box marginTop={1}>
+        <Text dimColor>Waiting for authorization... (Press Esc to cancel)</Text>
+      </Box>
+    </Box>
+  )
+}
+
+function CopilotPollingDialog({
+  userCode,
+  verificationUri,
+  deviceCode,
+  interval,
+  onSuccess,
+  onError,
+  onCancel,
+}: {
+  userCode: string
+  verificationUri: string
+  deviceCode: string
+  interval: number
+  onSuccess: (token: string) => void
+  onError: (error: string) => void
+  onCancel: () => void
+}) {
+  const [status, setStatus] = React.useState('Waiting for authorization...')
+  const cancelledRef = React.useRef(false)
+
+  React.useEffect(() => {
+    let stopped = false
+
+    async function poll() {
+      let currentInterval = interval
+      while (!stopped && !cancelledRef.current) {
+        await new Promise(resolve => setTimeout(resolve, currentInterval * 1000 + OAUTH_POLLING_SAFETY_MARGIN_MS))
+        if (stopped || cancelledRef.current) return
+
+        try {
+          const response = await fetch(COPILOT_ACCESS_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              client_id: COPILOT_CLIENT_ID,
+              device_code: deviceCode,
+              grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+            }),
+          })
+
+          if (!response.ok) {
+            onError('Failed to get access token')
+            return
+          }
+
+          const data = await response.json() as {
+            access_token?: string
+            error?: string
+            interval?: number
+          }
+
+          if (data.access_token) {
+            onSuccess(data.access_token)
+            return
+          }
+
+          if (data.error === 'authorization_pending') {
+            setStatus('Waiting for authorization...')
+            continue
+          }
+
+          if (data.error === 'slow_down') {
+            currentInterval = (data.interval ?? currentInterval + 5)
+            setStatus('Rate limited, slowing down...')
+            continue
+          }
+
+          if (data.error === 'expired_token') {
+            onError('Authorization expired, please try again')
+            return
+          }
+
+          if (data.error === 'access_denied') {
+            onError('Authorization was denied')
+            return
+          }
+
+          if (data.error) {
+            onError(`OAuth error: ${data.error}`)
+            return
+          }
+        } catch (err) {
+          onError(`Network error: ${err instanceof Error ? err.message : 'unknown'}`)
+          return
+        }
+      }
+    }
+
+    void poll()
+
+    return () => {
+      stopped = true
+    }
+  }, [deviceCode, interval])
+
+  useInput((_, key) => {
+    if (key.escape) {
+      cancelledRef.current = true
+      onCancel()
+    }
+  })
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold color="cyan">GitHub Copilot Authorization</Text>
+      <Text>
+        1. Open: <Text color="cyan" underline>{verificationUri}</Text>
+      </Text>
+      <Text>
+        2. Enter code: <Text bold color="yellow">{userCode}</Text>
+      </Text>
+      <Box marginTop={1}>
+        <Text dimColor>{status}</Text>
+      </Box>
+      <Text dimColor>Press Esc to cancel</Text>
+    </Box>
+  )
+}
+
 function SuccessDialog({
   providerId,
   onClose,
@@ -184,15 +359,15 @@ function SuccessDialog({
     onClose()
   })
 
-  const provider = PROVIDER_CONFIG[providerId]
+  const providerName = providerId === 'github-copilot' ? 'GitHub Copilot' : PROVIDER_CONFIG[providerId]?.name ?? providerId
 
   return (
     <Box flexDirection="column" gap={1}>
       <Text color="green">
-        Successfully connected to <Text bold>{provider.name}</Text>
+        Successfully connected to <Text bold>{providerName}</Text>
       </Text>
       <Text dimColor>
-        You can now use models from {provider.name} with the /model command.
+        You can now use models from {providerName} with the /model command.
       </Text>
       <Box marginTop={1}>
         <Text dimColor>Press any key to continue</Text>
@@ -225,7 +400,49 @@ function ConnectDialog({
   const [step, setStep] = React.useState<ConnectStep>({ type: 'select-provider' })
   const setAppState = useSetAppState()
 
-  const handleProviderSelect = (providerId: string) => {
+  const handleProviderSelect = async (providerId: string) => {
+    if (providerId === 'github-copilot') {
+      try {
+        const response = await fetch(COPILOT_DEVICE_CODE_URL, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            client_id: COPILOT_CLIENT_ID,
+            scope: 'read:user',
+          }),
+        })
+
+        if (!response.ok) {
+          setStep({ type: 'error', error: 'Failed to initiate GitHub device authorization' })
+          return
+        }
+
+        const data = await response.json() as {
+          verification_uri: string
+          user_code: string
+          device_code: string
+          interval: number
+        }
+
+        setStep({
+          type: 'copilot-oauth',
+          userCode: data.user_code,
+          verificationUri: data.verification_uri,
+          deviceCode: data.device_code,
+          interval: data.interval,
+        })
+      } catch (err) {
+        setStep({
+          type: 'error',
+          error: `Failed to connect: ${err instanceof Error ? err.message : 'unknown error'}`,
+        })
+      }
+      return
+    }
+
     if (!PROVIDER_CONFIG[providerId]) {
       setStep({ type: 'error', error: `Unknown provider: ${providerId}` })
       return
@@ -244,7 +461,6 @@ function ConnectDialog({
     const { providerId, apiKey } = step
 
     try {
-      // Save the provider credentials to global config
       saveGlobalConfig(current => ({
         ...current,
         connectedProviders: {
@@ -254,21 +470,7 @@ function ConnectDialog({
             connectedAt: new Date().toISOString(),
           },
         },
-        // Set as active provider if none is set
         activeProvider: current.activeProvider || providerId,
-      }))
-
-      // Update app state to reflect the new provider
-      setAppState(s => ({
-        ...s,
-        connectedProviders: {
-          ...(s.connectedProviders || {}),
-          [providerId]: {
-            apiKey,
-            connectedAt: new Date().toISOString(),
-          },
-        },
-        activeProvider: s.activeProvider || providerId,
       }))
 
       setStep({ type: 'success', providerId })
@@ -276,6 +478,37 @@ function ConnectDialog({
       setStep({
         type: 'error',
         error: error instanceof Error ? error.message : 'Failed to save credentials',
+      })
+    }
+  }
+
+  const handleCopilotSuccess = (token: string) => {
+    try {
+      saveGlobalConfig(current => ({
+        ...current,
+        connectedProviders: {
+          ...(current.connectedProviders || {}),
+          'github-copilot': {
+            oauthToken: token,
+            connectedAt: new Date().toISOString(),
+          },
+        },
+        activeProvider: current.activeProvider || 'github-copilot',
+      }))
+
+      // Pre-fetch and cache the model list in background
+      fetchCopilotModelsFromModelsDev().then(models => {
+        saveGlobalConfig(current => ({
+          ...current,
+          copilotModelsCache: { models, fetchedAt: Date.now() },
+        }))
+      }).catch(() => {})
+
+      setStep({ type: 'success', providerId: 'github-copilot' })
+    } catch (error) {
+      setStep({
+        type: 'error',
+        error: error instanceof Error ? error.message : 'Failed to save OAuth token',
       })
     }
   }
@@ -292,7 +525,6 @@ function ConnectDialog({
     setStep({ type: 'select-provider' })
   }
 
-  // Render based on current step
   if (step.type === 'select-provider') {
     return (
       <Dialog title="Connect a Provider" onCancel={handleCancel}>
@@ -327,6 +559,43 @@ function ConnectDialog({
           providerId={step.providerId}
           apiKey={step.apiKey}
           onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      </Dialog>
+    )
+  }
+
+  if (step.type === 'copilot-oauth') {
+    return (
+      <Dialog title="GitHub Copilot" onCancel={handleCancel}>
+        <CopilotOAuthDialog
+          userCode={step.userCode}
+          verificationUri={step.verificationUri}
+          onPollingStart={() => {
+            setStep({
+              type: 'copilot-polling',
+              userCode: step.userCode,
+              verificationUri: step.verificationUri,
+              deviceCode: step.deviceCode,
+              interval: step.interval,
+            })
+          }}
+          onCancel={handleCancel}
+        />
+      </Dialog>
+    )
+  }
+
+  if (step.type === 'copilot-polling') {
+    return (
+      <Dialog title="GitHub Copilot" onCancel={handleCancel}>
+        <CopilotPollingDialog
+          userCode={step.userCode}
+          verificationUri={step.verificationUri}
+          deviceCode={step.deviceCode}
+          interval={step.interval}
+          onSuccess={handleCopilotSuccess}
+          onError={(error) => setStep({ type: 'error', error })}
           onCancel={handleCancel}
         />
       </Dialog>

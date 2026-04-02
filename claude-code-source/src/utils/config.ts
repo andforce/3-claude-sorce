@@ -575,6 +575,23 @@ export type GlobalConfig = {
   // CURRENT_MIGRATION_VERSION, runMigrations() skips all sync migrations
   // (avoiding 11× saveGlobalConfig lock+re-read on every startup).
   migrationVersion?: number
+
+  // Connected third-party providers (GitHub Copilot, OpenAI, etc.)
+  connectedProviders?: Record<string, ConnectedProviderInfo>
+  activeProvider?: string
+
+  // Cached Copilot model list from models.dev
+  copilotModelsCache?: {
+    models: Array<{ id: string; label: string; description: string }>
+    fetchedAt: number
+  }
+}
+
+export type ConnectedProviderInfo = {
+  apiKey?: string
+  oauthToken?: string
+  enterpriseUrl?: string
+  connectedAt: string
 }
 
 /**
