@@ -10,6 +10,7 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
+import { isCopilotModel, isCopilotConnected } from '../../services/api/copilotClient.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -32,6 +33,17 @@ export async function validateModel(
     return {
       valid: false,
       error: `Model '${normalizedModel}' is not in the list of available models`,
+    }
+  }
+
+  // Copilot models are valid when Copilot is connected
+  if (isCopilotModel(normalizedModel)) {
+    if (isCopilotConnected()) {
+      return { valid: true }
+    }
+    return {
+      valid: false,
+      error: `GitHub Copilot is not connected. Use /connect to authenticate.`,
     }
   }
 

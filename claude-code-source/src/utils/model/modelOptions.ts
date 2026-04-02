@@ -32,6 +32,7 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { isCopilotConnected, getCopilotModelsCached } from '../../services/api/copilotClient.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -480,6 +481,20 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   for (const opt of getGlobalConfig().additionalModelOptionsCache ?? []) {
     if (!options.some(existing => existing.value === opt.value)) {
       options.push(opt)
+    }
+  }
+
+  // Add GitHub Copilot models when connected
+  if (isCopilotConnected()) {
+    const copilotModels = getCopilotModelsCached()
+    for (const copilotModel of copilotModels) {
+      if (!options.some(existing => existing.value === copilotModel.id)) {
+        options.push({
+          value: copilotModel.id,
+          label: `[Copilot] ${copilotModel.label}`,
+          description: copilotModel.description,
+        })
+      }
     }
   }
 
