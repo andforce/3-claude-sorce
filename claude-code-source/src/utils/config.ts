@@ -594,6 +594,12 @@ export type GlobalConfig = {
     models: Array<{ id: string; label: string; description: string }>
     fetchedAt: number
   }
+
+  /** From GET /v1/models after Custom OpenAI-compatible login */
+  openaiCustomModelsCache?: Array<{ id: string }>
+
+  /** From GET /v1/models after Custom Anthropic-compatible login */
+  anthropicCustomModelsCache?: Array<{ id: string }>
 }
 
 export type ConnectedProviderInfo = {
@@ -602,6 +608,10 @@ export type ConnectedProviderInfo = {
   refreshToken?: string
   tokenExpiry?: number
   enterpriseUrl?: string
+  /** OpenAI-compatible or Anthropic Messages API base (e.g. https://host or http://localhost:11434/v1) */
+  baseUrl?: string
+  /** Stored default / last-selected model id (custom-openai: chat `model`; custom-anthropic: Messages `model`) */
+  defaultModel?: string
   connectedAt: string
 }
 

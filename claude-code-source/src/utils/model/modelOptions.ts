@@ -34,6 +34,7 @@ import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import { isCopilotConnected, getCopilotModelsCached } from '../../services/api/copilotClient.js'
 import { isCursorConnected, getCursorModelsCached } from '../../services/api/cursorClient.js'
+import { isCustomOpenAIConnected, getCustomOpenAIProvider } from '../../services/api/customOpenAIClient.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -526,6 +527,57 @@ export function getModelOptions(fastMode = false): ModelOption[] {
           value: cursorModel.id,
           label: `[Cursor] ${cursorModel.label}`,
           description: cursorModel.description,
+        })
+      }
+    }
+  }
+
+  // Custom OpenAI-compatible endpoint (models from GET /v1/models at login)
+  if (isCustomOpenAIConnected()) {
+    const p = getCustomOpenAIProvider()
+    const cfg = getGlobalConfig()
+    const list = cfg.openaiCustomModelsCache
+    if (list && list.length > 0) {
+      for (const row of list) {
+        const id = `custom-openai:${row.id}`
+        if (!options.some(existing => existing.value === id)) {
+          options.push({
+            value: id,
+            label: `[Custom OpenAI] ${row.id}`,
+            description: p?.baseUrl
+              ? `OpenAI-compatible · ${p.baseUrl}`
+              : 'OpenAI-compatible custom API',
+          })
+        }
+      }
+    } else if (p?.defaultModel) {
+      const id = `custom-openai:${p.defaultModel}`
+      if (!options.some(existing => existing.value === id)) {
+        options.push({
+          value: id,
+          label: `[Custom OpenAI] ${p.defaultModel}`,
+          description: p?.baseUrl
+            ? `OpenAI-compatible · ${p.baseUrl}`
+            : 'OpenAI-compatible custom API',
+        })
+      }
+    }
+  }
+
+  // Custom Anthropic-compatible (models from GET /v1/models at login)
+  const gCfg = getGlobalConfig()
+  if (
+    gCfg.activeProvider === 'custom-anthropic' &&
+    gCfg.connectedProviders?.['custom-anthropic']?.baseUrl
+  ) {
+    const base = gCfg.connectedProviders?.['custom-anthropic']?.baseUrl
+    const cache = gCfg.anthropicCustomModelsCache
+    for (const row of cache ?? []) {
+      if (!options.some(existing => existing.value === row.id)) {
+        options.push({
+          value: row.id,
+          label: `[Custom Anthropic] ${row.id}`,
+          description: base ? `Anthropic-compatible · ${base}` : 'Anthropic-compatible custom API',
         })
       }
     }

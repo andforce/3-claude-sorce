@@ -31,6 +31,7 @@ import {
 import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { isCursorModel, createCursorFetchOverride } from './cursorClient.js'
+import { isCustomOpenAIModel, createCustomOpenAIFetchOverride } from './customOpenAIClient.js'
 
 /**
  * Environment variables for different client types:
@@ -139,12 +140,14 @@ export async function getAnthropicClient({
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
-  // When using a Copilot or Cursor model, intercept fetch to convert Anthropic → OpenAI format
+  // When using a Copilot, Cursor, or custom OpenAI-compatible model, intercept fetch
   let effectiveFetchOverride = fetchOverride
   if (model && isCopilotModel(model)) {
     effectiveFetchOverride = createCopilotFetchOverride(model)
   } else if (model && isCursorModel(model)) {
     effectiveFetchOverride = createCursorFetchOverride(model)
+  } else if (model && isCustomOpenAIModel(model)) {
+    effectiveFetchOverride = createCustomOpenAIFetchOverride(model)
   }
 
   const resolvedFetch = buildFetch(effectiveFetchOverride, source)
@@ -162,9 +165,9 @@ export async function getAnthropicClient({
     }),
   }
 
-  // For Copilot/Cursor models, skip all provider-specific client creation and use
-  // the standard Anthropic client with our fetch override that handles conversion
-  if (model && (isCopilotModel(model) || isCursorModel(model))) {
+  // For Copilot/Cursor/custom OpenAI-compatible models, skip provider-specific client
+  // creation and use the Anthropic client with a fetch override that converts requests.
+  if (model && (isCopilotModel(model) || isCursorModel(model) || isCustomOpenAIModel(model))) {
     const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
       apiKey: 'external-provider-placeholder-key',
       ...ARGS,
@@ -320,8 +323,25 @@ export async function getAnthropicClient({
     return new AnthropicVertex(vertexArgs) as unknown as Anthropic
   }
 
-  // Kimi Code: use Anthropic-compatible API at api.kimi.com/coding/
   const globalCfg = getGlobalConfig()
+
+  // Custom Anthropic-compatible API (self-hosted / LAN; API key optional)
+  const customAnthropicProvider = globalCfg.connectedProviders?.['custom-anthropic']
+  if (globalCfg.activeProvider === 'custom-anthropic' && customAnthropicProvider?.baseUrl) {
+    let anthropicBase = customAnthropicProvider.baseUrl.replace(/\/$/, '')
+    if (anthropicBase.endsWith('/v1')) {
+      anthropicBase = anthropicBase.slice(0, -3)
+    }
+    const customAnthropicConfig: ConstructorParameters<typeof Anthropic>[0] = {
+      apiKey: customAnthropicProvider.apiKey || 'not-needed',
+      baseURL: anthropicBase,
+      ...ARGS,
+      ...(isDebugToStdErr() && { logger: createStderrLogger() }),
+    }
+    return new Anthropic(customAnthropicConfig)
+  }
+
+  // Kimi Code: use Anthropic-compatible API at api.kimi.com/coding/
   const kimiProvider = globalCfg.connectedProviders?.['kimi-for-coding']
   if (globalCfg.activeProvider === 'kimi-for-coding' && kimiProvider?.apiKey) {
     const kimiConfig: ConstructorParameters<typeof Anthropic>[0] = {

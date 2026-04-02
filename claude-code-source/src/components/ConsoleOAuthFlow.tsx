@@ -15,6 +15,7 @@ import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { saveGlobalConfig } from '../utils/config.js';
 import { generateCursorAuthParams, getTokenExpiry, fetchCursorUsableModels } from '../services/api/cursorClient.js';
+import { fetchOpenAICompatibleModelIds, fetchAnthropicCompatibleModelIds } from '../services/api/customOpenAIClient.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
@@ -43,6 +44,22 @@ type OAuthStatus = {
   uuid: string;
   verifier: string;
 } // Cursor browser login + poll (same as /connect → Cursor)
+| {
+  state: 'openai_custom_setup';
+  step: 'base' | 'key' | 'fetching_models' | 'select_model';
+  baseUrl?: string;
+  apiKey?: string;
+  models?: string[];
+  fetchError?: string;
+} // OpenAI-compatible: base URL → optional API key → GET /v1/models → pick model
+| {
+  state: 'anthropic_custom_setup';
+  step: 'base' | 'key' | 'fetching_models' | 'select_model';
+  baseUrl?: string;
+  apiKey?: string;
+  models?: string[];
+  fetchError?: string;
+} // Anthropic: base URL → optional API key → GET /v1/models → pick model
 | {
   state: 'ready_to_start';
 } // Flow started, waiting for browser to open
@@ -164,7 +181,7 @@ export function ConsoleOAuthFlow({
     });
   }, {
     context: 'Confirmation',
-    isActive: oauthStatus.state === 'cursor_preparing' || oauthStatus.state === 'cursor_oauth'
+    isActive: oauthStatus.state === 'cursor_preparing' || oauthStatus.state === 'cursor_oauth' || oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup'
   });
 
   useEffect(() => {
@@ -300,6 +317,102 @@ export function ConsoleOAuthFlow({
       stopped = true;
     };
   }, [oauthStatus, terminal]);
+
+  useEffect(() => {
+    if (oauthStatus.state !== 'openai_custom_setup' || oauthStatus.step !== 'fetching_models') {
+      return;
+    }
+    const baseUrl = oauthStatus.baseUrl;
+    const apiKey = oauthStatus.apiKey;
+    if (!baseUrl) {
+      return;
+    }
+    let cancelled = false;
+    void fetchOpenAICompatibleModelIds(baseUrl, apiKey).then(ids => {
+      if (cancelled) {
+        return;
+      }
+      if (ids.length === 0) {
+        setOAuthStatus({
+          state: 'openai_custom_setup',
+          step: 'key',
+          baseUrl,
+          apiKey,
+          fetchError: 'No models returned from /v1/models. Check the base URL and API key.'
+        });
+        return;
+      }
+      setOAuthStatus({
+        state: 'openai_custom_setup',
+        step: 'select_model',
+        baseUrl,
+        apiKey,
+        models: ids
+      });
+    }).catch(err => {
+      if (cancelled) {
+        return;
+      }
+      setOAuthStatus({
+        state: 'openai_custom_setup',
+        step: 'key',
+        baseUrl,
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models'
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [oauthStatus]);
+
+  useEffect(() => {
+    if (oauthStatus.state !== 'anthropic_custom_setup' || oauthStatus.step !== 'fetching_models') {
+      return;
+    }
+    const baseUrl = oauthStatus.baseUrl;
+    const apiKey = oauthStatus.apiKey;
+    if (!baseUrl) {
+      return;
+    }
+    let cancelled = false;
+    void fetchAnthropicCompatibleModelIds(baseUrl, apiKey).then(ids => {
+      if (cancelled) {
+        return;
+      }
+      if (ids.length === 0) {
+        setOAuthStatus({
+          state: 'anthropic_custom_setup',
+          step: 'key',
+          baseUrl,
+          apiKey,
+          fetchError: 'No models returned from /v1/models. Check the base URL and API key.'
+        });
+        return;
+      }
+      setOAuthStatus({
+        state: 'anthropic_custom_setup',
+        step: 'select_model',
+        baseUrl,
+        apiKey,
+        models: ids
+      });
+    }).catch(err => {
+      if (cancelled) {
+        return;
+      }
+      setOAuthStatus({
+        state: 'anthropic_custom_setup',
+        step: 'key',
+        baseUrl,
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models'
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [oauthStatus]);
 
   useEffect(() => {
     if (pastedCode === 'c' && oauthStatus.state === 'waiting_for_login' && showPastePrompt && !urlCopied) {
@@ -570,6 +683,12 @@ function OAuthStatusMessage(t0) {
           }, {
             label: <Text>Cursor ·{" "}<Text dimColor={true}>Claude, GPT, Gemini, and more via PKCE browser login</Text>{"\n"}</Text>,
             value: "cursor"
+          }, {
+            label: <Text>OpenAI-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
+            value: "openai_custom"
+          }, {
+            label: <Text>Anthropic-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
+            value: "anthropic_custom"
           }];
           $[5] = t6;
         } else {
@@ -593,6 +712,20 @@ function OAuthStatusMessage(t0) {
                 logEvent("tengu_oauth_cursor_selected", {});
                 setOAuthStatus({
                   state: "cursor_preparing"
+                });
+              } else if (value_0 === "openai_custom") {
+                logEvent("tengu_oauth_openai_custom_selected", {});
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openai_custom_setup",
+                  step: "base"
+                });
+              } else if (value_0 === "anthropic_custom") {
+                logEvent("tengu_oauth_anthropic_custom_selected", {});
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "anthropic_custom_setup",
+                  step: "base"
                 });
               } else {
                 setOAuthStatus({
@@ -757,6 +890,184 @@ function OAuthStatusMessage(t0) {
               <Box><Spinner /><Text> Waiting for authorization…</Text></Box>
             </Box>
             <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
+          </Box>;
+      }
+    case "openai_custom_setup":
+      {
+        const st = oauthStatus;
+        if (st.step === "base") {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom OpenAI-compatible API</Text>
+            <Text>Base URL (include /v1 if your server uses it), e.g. https://api.openai.com/v1 or http://localhost:11434/v1</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text>Base URL: </Text>
+              <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
+                const v = value_0.trim();
+                if (!v) {
+                  setPastedCode("");
+                  setOAuthStatus({
+                    state: "idle"
+                  });
+                  return;
+                }
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openai_custom_setup",
+                  step: "key",
+                  baseUrl: v
+                });
+              }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} />
+            </Box>
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to continue. Empty + Enter to go back.</Text>
+          </Box>;
+        }
+        if (st.step === "fetching_models") {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom OpenAI-compatible API</Text>
+            <Box><Spinner /><Text> Fetching models from GET /v1/models…</Text></Box>
+            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
+          </Box>;
+        }
+        if (st.step === "select_model" && st.models && st.models.length > 0) {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Select a model</Text>
+            <Text dimColor={true}>OpenAI-compatible · {st.baseUrl}</Text>
+            <Box marginTop={1}><Select options={st.models.map(m => ({
+              label: <Text>{m}</Text>,
+              value: m
+            }))} onChange={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  "custom-openai": {
+                    baseUrl: st.baseUrl || "",
+                    defaultModel: modelId,
+                    ...(st.apiKey ? {
+                      apiKey: st.apiKey
+                    } : {}),
+                    connectedAt: new Date().toISOString()
+                  }
+                },
+                activeProvider: "custom-openai",
+                openaiCustomModelsCache: st.models.map(id => ({
+                  id
+                }))
+              }));
+              setOAuthStatus({
+                state: "success"
+              });
+            }} /></Box>
+            <Text dimColor={true}>Choose the model to use (from your API).</Text>
+          </Box>;
+        }
+        return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom OpenAI-compatible API</Text>
+            {st.fetchError ? <Text color="error">{st.fetchError}</Text> : null}
+            <Text>API Key (optional — used for /v1/models and chat; skip for local / no-auth)</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text>API Key: </Text>
+              <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
+                const apiKey = value_0.trim();
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openai_custom_setup",
+                  step: "fetching_models",
+                  baseUrl: st.baseUrl,
+                  apiKey: apiKey || undefined
+                });
+              }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} mask="*" />
+            </Box>
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to fetch models. Leave empty if no key is needed.</Text>
+          </Box>;
+      }
+    case "anthropic_custom_setup":
+      {
+        const st = oauthStatus;
+        if (st.step === "base") {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom Anthropic-compatible API</Text>
+            <Text>Base URL for Messages API (e.g. https://api.anthropic.com or http://localhost:8080)</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text>Base URL: </Text>
+              <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
+                const v = value_0.trim();
+                if (!v) {
+                  setPastedCode("");
+                  setOAuthStatus({
+                    state: "idle"
+                  });
+                  return;
+                }
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "anthropic_custom_setup",
+                  step: "key",
+                  baseUrl: v
+                });
+              }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} />
+            </Box>
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to continue. Empty + Enter to go back.</Text>
+          </Box>;
+        }
+        if (st.step === "fetching_models") {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom Anthropic-compatible API</Text>
+            <Box><Spinner /><Text> Fetching models from GET /v1/models…</Text></Box>
+            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
+          </Box>;
+        }
+        if (st.step === "select_model" && st.models && st.models.length > 0) {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Select a model</Text>
+            <Text dimColor={true}>Anthropic-compatible · {st.baseUrl}</Text>
+            <Box marginTop={1}><Select options={st.models.map(m => ({
+              label: <Text>{m}</Text>,
+              value: m
+            }))} onChange={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  "custom-anthropic": {
+                    baseUrl: st.baseUrl || "",
+                    defaultModel: modelId,
+                    ...(st.apiKey ? {
+                      apiKey: st.apiKey
+                    } : {}),
+                    connectedAt: new Date().toISOString()
+                  }
+                },
+                activeProvider: "custom-anthropic",
+                anthropicCustomModelsCache: st.models.map(id => ({
+                  id
+                }))
+              }));
+              setOAuthStatus({
+                state: "success"
+              });
+            }} /></Box>
+            <Text dimColor={true}>Choose the model to use (from your API).</Text>
+          </Box>;
+        }
+        return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Custom Anthropic-compatible API</Text>
+            {st.fetchError ? <Text color="error">{st.fetchError}</Text> : null}
+            <Text>API Key (optional — used for /v1/models and Messages; skip for local / no-auth)</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text>API Key: </Text>
+              <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
+                const apiKey = value_0.trim();
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "anthropic_custom_setup",
+                  step: "fetching_models",
+                  baseUrl: st.baseUrl,
+                  apiKey: apiKey || undefined
+                });
+              }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} mask="*" />
+            </Box>
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to fetch models. Leave empty if no key is needed.</Text>
           </Box>;
       }
     case "waiting_for_login":
