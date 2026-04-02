@@ -222,6 +222,50 @@ if (cmd.userFacing) {
 }
 ```
 
+### 3.3.1 命令注册的真实特征
+
+原文档这里还可以更精确一点。`src/commands.ts` 里的命令注册不是静态常量数组那么简单，而是：
+
+1. **大量 feature-gated require**
+   - 例如 `bridge`, `voice`, `ultraplan`, `fork`, `assistant`, `remote-setup`
+   - 借助 `bun:bundle` 的 `feature()` 做编译期死代码消除
+
+2. **内外部命令分层**
+   - `INTERNAL_ONLY_COMMANDS` 明确列出只在内部构建保留的命令
+   - 外部 build 会在 bundle 阶段直接裁掉
+
+3. **命令集合延迟求值**
+   - `COMMANDS = memoize(() => [...])`
+   - 这样可以避免模块初始化阶段过早读取 config / auth / settings
+
+4. **命令加载不是只有 commands 目录**
+   - builtin commands
+   - bundled skills
+   - builtin plugin skills
+   - skill dir commands
+   - workflow commands
+   - plugin commands
+   - plugin skills
+   - dynamic skills
+
+### 3.3.2 Slash 命令与普通 prompt 的分流细节
+
+这一点在 `src/utils/processUserInput/processUserInput.ts` 里很关键：
+
+- Slash 命令不是最先无脑执行的。
+- 在真正进入 slash path 之前，系统还会先做：
+  1. 图片 resize / pasted image metadata 收集
+  2. bridge safe command 判断
+  3. ultraplan keyword 重写
+  4. attachment 提取策略判断
+
+尤其是 bridge / remote-control 场景：
+- `skipSlashCommands` 默认可阻止远端输入直接触发本地 slash 命令
+- 但 `bridgeOrigin=true` 时，如果命令满足 `isBridgeSafeCommand()`，又会重新放开
+- 如果命令存在但不安全，会直接返回：`/<cmd> isn't available over Remote Control.`
+
+这说明命令系统本质上是 **命令发现 + 安全门控 + 环境裁剪** 三段式，不只是一个 parser。
+
 ### 3.4 可用性控制
 
 **文件**: `src/commands.ts`
@@ -486,6 +530,34 @@ function getOrCreateUserID(): string {
 }
 ```
 
+**需要补充的一点：认证路径比文档原文复杂得多。**
+
+源码里至少有这些认证来源与判断路径：
+
+1. **Claude.ai OAuth**
+   - `CLAUDE_CODE_OAUTH_TOKEN`
+   - file descriptor 注入的 OAuth token
+   - 本地持久化的 claude.ai token
+
+2. **Anthropic API Key**
+   - `ANTHROPIC_API_KEY`
+   - `apiKeyHelper`
+   - `/login managed key`
+
+3. **第三方提供商认证**
+   - Bedrock / Vertex / Foundry
+   - 这些路径会显式改变 `isAnthropicAuthEnabled()` 的判断
+
+4. **Managed OAuth 上下文**
+   - `CLAUDE_CODE_REMOTE=true`
+   - `CLAUDE_CODE_ENTRYPOINT === 'claude-desktop'`
+   - 这时系统会避免错误回落到用户本地 `~/.claude/settings.json` 的 API key
+
+**这意味着：**
+- 认证系统不是“单 token 模式”，而是多来源优先级决策系统。
+- 远程模式、桌面模式、bare 模式、SSH socket 模式都会改变认证源选择。
+- 文档之前只写了“OAuth/API Key”，但实际上源码是在做一套 **认证源裁决器**。
+
 #### C. 仓库标识
 **文件**: `src/services/analytics/metadata.ts:702`
 
@@ -598,55 +670,157 @@ export function sanitizeToolNameForAnalytics(toolName: string): string {
 
 ### 6.1 状态管理
 
-**双层状态设计**:
+**真实实现是“双轨状态”而不是简单的 React useState**：
 
-| 层级 | 文件 | 用途 | 特性 |
+| 层级 | 文件 | 用途 | 实现方式 |
 |-----|------|------|------|
-| 全局信号 | `bootstrap/state.ts` | 会话级数据 | Signal 响应式 |
-| React 状态 | `state/AppState.tsx` | UI 状态 | useState/useReducer |
+| Bootstrap 全局状态 | `src/bootstrap/state.ts` | 进程/会话级、跨 UI 的全局状态 | 自定义 signal + 模块级状态 |
+| App UI 状态 | `src/state/AppState.tsx` + `src/state/AppStateStore.ts` | REPL / 组件渲染状态 | 外部 store + `useSyncExternalStore` |
 
-**关键状态**:
+**这里有几个之前文档里没强调的关键点：**
+
+1. `AppState` **不是**普通 React Context + `useReducer`。
+   - 它实际通过 `createStore()` 创建外部 store。
+   - 组件通过 `useAppState(selector)` 订阅状态切片。
+   - 底层使用 `useSyncExternalStore`，避免全量重渲染。
+
+2. `AppStateProvider` 里还包了一层：
+   - `MailboxProvider`
+   - `VoiceProvider`（feature-gated）
+
+3. 设置变更不是组件内部局部处理，而是通过 `useSettingsChange()` → `applySettingsChange()` 同步灌回 store。
+
+4. `bootstrap/state.ts` 里维护了大量**进程级遥测、会话 lineage、插件、计划模式、teleport、channel allowlist、session persistence** 等跨模块状态，职责比文档里原先写的更重。
+
+**关键状态（bootstrap/state.ts）**:
 ```typescript
-// bootstrap/state.ts
 State = {
-  // 成本追踪
+  // 路径与会话身份
+  originalCwd: string
+  projectRoot: string
+  cwd: string
+  sessionId: SessionId
+  parentSessionId?: SessionId
+  sessionProjectDir: string | null
+
+  // 成本与模型统计
   totalCostUSD: number
   totalAPIDuration: number
+  totalAPIDurationWithoutRetries: number
+  totalToolDuration: number
   modelUsage: { [modelName: string]: ModelUsage }
-  
-  // 性能指标
+  mainLoopModelOverride?: ModelSetting
+  initialMainLoopModel: ModelSetting
+
+  // Turn 级性能指标
   turnHookDurationMs: number
   turnToolDurationMs: number
   turnClassifierDurationMs: number
-  
-  // 会话标识
-  sessionId: SessionId
-  parentSessionId?: SessionId  // 计划模式 → 实现的 lineage
-  
-  // 功能开关
-  kairosActive: boolean        // Assistant 模式
-  strictToolResultPairing: boolean
-  
-  // 遥测
+  turnToolCount: number
+  turnHookCount: number
+  turnClassifierCount: number
+
+  // 遥测 / OTel
   meter: Meter | null
-  sessionCounter: AttributedCounter | null
-  
-  // 代理协作
+  loggerProvider: LoggerProvider | null
+  meterProvider: MeterProvider | null
+  tracerProvider: BasicTracerProvider | null
+  eventLogger: Logger | null
+
+  // API / 调试回放
+  lastAPIRequest: Omit<BetaMessageStreamParams, 'messages'> | null
+  lastAPIRequestMessages: BetaMessageStreamParams['messages'] | null
+  lastClassifierRequests: unknown[] | null
+  cachedClaudeMdContent: string | null
+  inMemoryErrorLog: Array<{ error: string; timestamp: string }>
+
+  // 代理 / 协作
   agentColorMap: Map<string, AgentColorName>
   invokedSkills: Map<string, SkillInvocation>
-}
+  mainThreadAgentType?: string
 
-// state/AppState.tsx
-AppState = {
-  messages: Message[]           // 对话历史
-  userInput: string             // 输入框内容
-  toolPermissionContext: ToolPermissionContext
-  companionReaction?: string    // 宠物对话
-  companionPetAt?: number       // 上次抚摸时间
-  footerSelection?: 'companion' | 'input' | null
-  // ... UI 状态
+  // 会话行为 / 模式
+  kairosActive: boolean
+  strictToolResultPairing: boolean
+  sessionBypassPermissionsMode: boolean
+  scheduledTasksEnabled: boolean
+  sessionCronTasks: SessionCronTask[]
+  sessionCreatedTeams: Set<string>
+  sessionTrustAccepted: boolean
+  sessionPersistenceDisabled: boolean
+  hasExitedPlanMode: boolean
+
+  // 渠道 / 远程 / direct connect
+  isRemoteMode: boolean
+  directConnectServerUrl?: string
+  allowedChannels: ChannelEntry[]
+  hasDevChannels: boolean
 }
 ```
+
+**关键状态（AppState）**:
+```typescript
+AppState = {
+  messages: Message[]
+  userInput: string
+  toolPermissionContext: ToolPermissionContext
+  companionReaction?: string
+  companionPetAt?: number
+  footerSelection?: 'companion' | 'input' | null
+  // 以及 prompt suggestion、selection、fullscreen、permission dialog 等大量 UI 状态
+}
+```
+
+### 6.1.1 配置与持久化系统
+
+这一块原文档明显写少了。`src/utils/config.ts` 实际上是整个 CLI 的**持久化中枢**之一。
+
+它至少维护两层配置：
+
+| 层级 | 类型 | 作用 |
+|-----|------|------|
+| GlobalConfig | `~/.claude/...` | 用户级偏好、认证、实验缓存、IDE/通知、宠物 soul |
+| ProjectConfig | 项目级 | 当前仓库允许工具、MCP server、worktree session、trust dialog 等 |
+
+**ProjectConfig 负责**：
+- `allowedTools`
+- `mcpContextUris`
+- `mcpServers`
+- `hasTrustDialogAccepted`
+- `activeWorktreeSession`
+- `remoteControlSpawnMode`
+- 最近一次会话性能/成本统计
+
+**GlobalConfig 负责**：
+- `userID`
+- `theme`
+- `oauthAccount`
+- `primaryApiKey`
+- `env`
+- `companion` / `companionMuted`
+- IDE 自动连接 / 自动安装扩展
+- Push 通知开关
+- 各类 migration / onboarding / hint / upsell 计数器
+- GrowthBook / Statsig / Dynamic config 缓存
+- `githubRepoPaths`
+- `deepLinkTerminal`
+- `skillUsage`
+
+**一个很关键的真实设计点**：
+- 宠物的 `bones` 不持久化，只持久化 `StoredCompanion = {name, personality, hatchedAt}`。
+- 所以用户不能靠改 config 伪造 legendary；读取时会重新根据 `userId` roll。
+
+### 6.1.2 会话持久化与项目身份
+
+源码里对“项目身份”做了比普通 CLI 更严格的区分：
+- `originalCwd`: 进程启动时目录
+- `cwd`: 当前执行目录
+- `projectRoot`: 稳定项目根，只在启动时确定
+
+这意味着：
+- 中途切换 worktree / cwd 不会改变会话所属项目身份
+- history / skills / session registry / Claude.md 加载更依赖 `projectRoot`
+- 文件操作则可能依赖当前 `cwd`
 
 ### 6.2 权限系统
 
@@ -838,7 +1012,52 @@ const storedPath = await storeImage(pastedImage)
 
 ---
 
-## 十、关键文件索引
+## 十、补充结论：当前文档里原先遗漏/需要修正的点
+
+### 10.1 原文档遗漏的重要机制
+
+1. **AppState 不是普通 React state**
+   - 实际是外部 store + selector + `useSyncExternalStore`
+   - 这会影响你对渲染性能、订阅粒度、状态变更传播方式的判断
+
+2. **配置系统远比“本地 JSON”复杂**
+   - 有 `GlobalConfig` / `ProjectConfig` 双层
+   - 配置项里包含认证、MCP、IDE、宠物、提示策略、实验缓存、repo path mapping、deep link terminal、notification 开关、worktree session 等
+
+3. **认证系统是多源裁决，不是单一路径**
+   - OAuth / API Key / file descriptor / managed context / third-party provider 并存
+   - bare/remote/desktop/ssh 等运行环境会切换认证优先级
+
+4. **命令系统本质是“动态装载系统”**
+   - 不只是 `/commands` 目录
+   - 还包括 skills、plugins、builtin plugin skills、workflow、dynamic skills
+
+5. **Bridge / Remote Control 对 slash command 有二次裁剪**
+   - 是否允许远端输入触发本地 slash command 不是固定的
+   - 有 `skipSlashCommands` + `bridgeOrigin` + `isBridgeSafeCommand()` 三重控制
+
+6. **Bootstrap state 的职责非常重**
+   - 它不只是“全局状态”，还是：
+     - 遥测总线的上下文
+     - 会话 lineage 容器
+     - last API request 回放缓存
+     - plan/auto mode 生命周期开关
+     - remote / channel / teleport / team session 状态容器
+
+### 10.2 原文档措辞需要更精确的地方
+
+- “React + Ink” 没错，但要补一句：这是 **自定义 Ink 分支/扩展体系**，不是只用官方 Ink 组件。
+- “状态管理 = AppState.ts + bootstrap/state.ts” 没错，但更准确应写成：
+  - `bootstrap/state.ts` = 进程级事实源
+  - `AppStateStore` = UI 订阅层
+- “命令系统” 不应只理解为 slash commands；在源码里它已经和 skills / plugins / workflow 融合成统一 command surface。
+- “数据收集” 那部分应明确：
+  - 大量字段经过脱敏和分级控制
+  - 但系统确实具备设备、组织、仓库、环境、行为链路级别的稳定识别能力
+
+---
+
+## 十一、关键文件索引
 
 | 功能 | 文件路径 |
 |-----|---------|
@@ -855,6 +1074,31 @@ const storedPath = await storeImage(pastedImage)
 | 权限系统 | `src/types/permissions.ts` |
 | MCP | `src/services/mcp/` |
 | 构建配置 | `build.ts` |
+
+---
+
+## 十二、建议你下一轮继续深挖的模块
+
+如果你要把这份文档继续升级成“架构审计级文档”，我建议下一轮再补下面几块：
+
+1. **`src/query.ts` 主循环**
+   - 真正的消息 → 模型 → tool use → tool result → 再入模型 的闭环
+   - 这里是整个 agent runtime 的心脏
+
+2. **`src/screens/REPL.tsx` 交互编排**
+   - 当前文档提到了 REPL，但还没把 prompt submit、message list、fullscreen、selection、permission dialog、notification orchestration 讲透
+
+3. **`src/services/mcp/`**
+   - 当前只写了高层架构，没拆开 client lifecycle、server approval、resource loading、registry、connector 故障恢复
+
+4. **`src/tools/AgentTool/` 与 subagent runtime**
+   - 当前文档提到 Agent，但还没把 worktree isolation、background agent、teammate/in-process teammate 的差异拆透
+
+5. **`src/utils/settings/` 与远程受管设置**
+   - 这里直接影响 bypass mode、auto mode、组织策略和 UI 行为
+
+6. **`src/utils/permissions/`**
+   - 当前只写了门控流程，还没展开 denial tracking、规则来源、危险规则剥离、auto/ask/deny 的优先级
 
 ---
 
