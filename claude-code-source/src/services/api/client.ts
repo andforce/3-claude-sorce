@@ -30,6 +30,7 @@ import {
 } from '../../utils/envUtils.js'
 import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
 import { getGlobalConfig } from '../../utils/config.js'
+import { isCursorModel, createCursorFetchOverride } from './cursorClient.js'
 
 /**
  * Environment variables for different client types:
@@ -138,10 +139,13 @@ export async function getAnthropicClient({
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
-  // When using a Copilot model, intercept fetch to convert Anthropic → OpenAI format
-  const effectiveFetchOverride = model && isCopilotModel(model)
-    ? createCopilotFetchOverride(model)
-    : fetchOverride
+  // When using a Copilot or Cursor model, intercept fetch to convert Anthropic → OpenAI format
+  let effectiveFetchOverride = fetchOverride
+  if (model && isCopilotModel(model)) {
+    effectiveFetchOverride = createCopilotFetchOverride(model)
+  } else if (model && isCursorModel(model)) {
+    effectiveFetchOverride = createCursorFetchOverride(model)
+  }
 
   const resolvedFetch = buildFetch(effectiveFetchOverride, source)
 
@@ -158,11 +162,11 @@ export async function getAnthropicClient({
     }),
   }
 
-  // For Copilot models, skip all provider-specific client creation and use
+  // For Copilot/Cursor models, skip all provider-specific client creation and use
   // the standard Anthropic client with our fetch override that handles conversion
-  if (model && isCopilotModel(model)) {
+  if (model && (isCopilotModel(model) || isCursorModel(model))) {
     const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-      apiKey: 'copilot-placeholder-key',
+      apiKey: 'external-provider-placeholder-key',
       ...ARGS,
       ...(isDebugToStdErr() && { logger: createStderrLogger() }),
     }

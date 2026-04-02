@@ -11,6 +11,7 @@ import {
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
 import { isCopilotModel, isCopilotConnected } from '../../services/api/copilotClient.js'
+import { isCursorModel, isCursorConnected } from '../../services/api/cursorClient.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -44,6 +45,17 @@ export async function validateModel(
     return {
       valid: false,
       error: `GitHub Copilot is not connected. Use /connect to authenticate.`,
+    }
+  }
+
+  // Cursor models are valid when Cursor is connected
+  if (isCursorModel(normalizedModel)) {
+    if (isCursorConnected()) {
+      return { valid: true }
+    }
+    return {
+      valid: false,
+      error: `Cursor is not connected. Use /connect to authenticate.`,
     }
   }
 
