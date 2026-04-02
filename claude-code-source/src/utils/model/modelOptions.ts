@@ -498,6 +498,24 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     }
   }
 
+  // When Kimi Code is the active provider, fetch available models from the API
+  const kimiCfg = getGlobalConfig()
+  const kimiProv = kimiCfg.connectedProviders?.['kimi-for-coding']
+  if (kimiCfg.activeProvider === 'kimi-for-coding' && kimiProv?.apiKey) {
+    const kimiModelCache = kimiCfg.kimiModelsCache
+    if (kimiModelCache && kimiModelCache.length > 0) {
+      for (const km of kimiModelCache) {
+        if (!options.some(existing => existing.value === km.id)) {
+          options.push({
+            value: km.id,
+            label: `[Kimi] ${km.id}`,
+            description: km.owned_by ? `${km.id} · by ${km.owned_by}` : km.id,
+          })
+        }
+      }
+    }
+  }
+
   // Add custom model from either the current model value or the initial one
   // if it is not already in the options.
   let customModel: ModelSetting = null

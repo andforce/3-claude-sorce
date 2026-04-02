@@ -585,6 +585,9 @@ export type GlobalConfig = {
     models: Array<{ id: string; label: string; description: string }>
     fetchedAt: number
   }
+
+  // Cached Kimi model list from /v1/models
+  kimiModelsCache?: Array<{ id: string; owned_by?: string }>
 }
 
 export type ConnectedProviderInfo = {

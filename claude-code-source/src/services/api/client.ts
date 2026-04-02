@@ -29,6 +29,7 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
+import { getGlobalConfig } from '../../utils/config.js'
 
 /**
  * Environment variables for different client types:
@@ -313,6 +314,19 @@ export async function getAnthropicClient({
     }
     // we have always been lying about the return type - this doesn't support batching or models
     return new AnthropicVertex(vertexArgs) as unknown as Anthropic
+  }
+
+  // Kimi Code: use Anthropic-compatible API at api.kimi.com/coding/
+  const globalCfg = getGlobalConfig()
+  const kimiProvider = globalCfg.connectedProviders?.['kimi-for-coding']
+  if (globalCfg.activeProvider === 'kimi-for-coding' && kimiProvider?.apiKey) {
+    const kimiConfig: ConstructorParameters<typeof Anthropic>[0] = {
+      apiKey: kimiProvider.apiKey,
+      baseURL: 'https://api.kimi.com/coding/',
+      ...ARGS,
+      ...(isDebugToStdErr() && { logger: createStderrLogger() }),
+    }
+    return new Anthropic(kimiConfig)
   }
 
   // Determine authentication method based on available tokens

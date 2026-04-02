@@ -140,7 +140,7 @@ type OpenAITool = {
   }
 }
 
-type AnthropicContentBlock =
+export type AnthropicContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -148,12 +148,12 @@ type AnthropicContentBlock =
   | { type: 'thinking'; thinking: string }
   | Record<string, unknown>
 
-type AnthropicMessage = {
+export type AnthropicMessage = {
   role: 'user' | 'assistant'
   content: string | AnthropicContentBlock[]
 }
 
-function convertAnthropicMessagesToOpenAI(
+export function convertAnthropicMessagesToOpenAI(
   messages: AnthropicMessage[],
   systemPrompt?: string,
 ): OpenAIMessage[] {
@@ -243,7 +243,7 @@ function convertAnthropicMessagesToOpenAI(
   return result
 }
 
-function convertAnthropicToolsToOpenAI(
+export function convertAnthropicToolsToOpenAI(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): OpenAITool[] {
   return tools.map(tool => ({
@@ -633,7 +633,7 @@ export function createCopilotFetchOverride(
   }
 }
 
-function convertOpenAIStreamToAnthropic(
+export function convertOpenAIStreamToAnthropic(
   openaiStream: ReadableStream<Uint8Array>,
   model: string,
 ): ReadableStream<Uint8Array> {
