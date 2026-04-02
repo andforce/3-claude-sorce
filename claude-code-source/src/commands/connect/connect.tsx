@@ -9,6 +9,11 @@ import { Select, OptionWithDescription } from '../../components/CustomSelect/ind
 import { useAppState, useSetAppState } from '../../state/AppState.js'
 import { fetchCopilotModelsFromModelsDev } from '../../services/api/copilotClient.js'
 import { generateCursorAuthParams, getTokenExpiry, fetchCursorUsableModels } from '../../services/api/cursorClient.js'
+import {
+  fetchOpenAICompatibleModelIds,
+  fetchAnthropicCompatibleModelIds,
+} from '../../services/api/customOpenAIClient.js'
+import { Spinner } from '../../components/Spinner.js'
 
 const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz'
 const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -46,6 +51,16 @@ const PROVIDERS: OptionWithDescription<string>[] = [
     label: 'Anthropic',
     hint: 'Claude 3.5 Sonnet, Opus, and Haiku',
   },
+  {
+    value: 'custom-openai',
+    label: 'Custom OpenAI-compatible API',
+    hint: 'Self-hosted or LAN · base URL + optional key · pick model from /v1/models',
+  },
+  {
+    value: 'custom-anthropic',
+    label: 'Custom Anthropic-compatible API',
+    hint: 'Self-hosted or LAN · base URL + optional key · pick model from /v1/models',
+  },
 ]
 
 const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlaceholder: string }> = {
@@ -81,6 +96,22 @@ type ConnectStep =
   | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
   | { type: 'cursor-auth'; loginUrl: string; uuid: string; verifier: string }
   | { type: 'cursor-polling'; loginUrl: string; uuid: string; verifier: string }
+  | {
+      type: 'custom-openai'
+      step: 'base' | 'key' | 'fetching' | 'select'
+      baseUrl?: string
+      apiKey?: string
+      models?: string[]
+      fetchError?: string
+    }
+  | {
+      type: 'custom-anthropic'
+      step: 'base' | 'key' | 'fetching' | 'select'
+      baseUrl?: string
+      apiKey?: string
+      models?: string[]
+      fetchError?: string
+    }
 
 function ApiKeyInput({
   providerId,
@@ -499,7 +530,16 @@ function SuccessDialog({
     onClose()
   })
 
-  const providerName = providerId === 'github-copilot' ? 'GitHub Copilot' : providerId === 'cursor' ? 'Cursor' : PROVIDER_CONFIG[providerId]?.name ?? providerId
+  const providerName =
+    providerId === 'github-copilot'
+      ? 'GitHub Copilot'
+      : providerId === 'cursor'
+        ? 'Cursor'
+        : providerId === 'custom-openai'
+          ? 'Custom OpenAI-compatible API'
+          : providerId === 'custom-anthropic'
+            ? 'Custom Anthropic-compatible API'
+            : PROVIDER_CONFIG[providerId]?.name ?? providerId
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -528,6 +568,142 @@ function ErrorDialog({ error, onClose }: { error: string; onClose: () => void })
       <Box marginTop={1}>
         <Text dimColor>Press any key to go back</Text>
       </Box>
+    </Box>
+  )
+}
+
+/** Single-line visible input (e.g. base URL). Empty Enter calls onEmptySubmit if set, else onCancel. */
+function VisibleLineInput({
+  title,
+  hint,
+  onSubmit,
+  onCancel,
+  onEmptySubmit,
+}: {
+  title: string
+  hint: string
+  onSubmit: (line: string) => void
+  onCancel: () => void
+  onEmptySubmit?: () => void
+}) {
+  const [value, setValue] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel()
+      return
+    }
+    if (key.return) {
+      const v = value.trim()
+      if (!v) {
+        if (onEmptySubmit) {
+          onEmptySubmit()
+        } else {
+          onCancel()
+        }
+        return
+      }
+      onSubmit(v)
+      return
+    }
+    if (key.backspace || key.delete) {
+      if (cursorOffset > 0) {
+        const newValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
+        setValue(newValue)
+        setCursorOffset(cursorOffset - 1)
+      }
+      return
+    }
+    if (input) {
+      const newValue = value.slice(0, cursorOffset) + input + value.slice(cursorOffset)
+      setValue(newValue)
+      setCursorOffset(cursorOffset + input.length)
+    }
+  })
+
+  const cursorChar = cursorOffset < value.length ? value[cursorOffset] : ' '
+  const beforeCursor = value.slice(0, cursorOffset)
+  const afterCursor = value.slice(cursorOffset + 1)
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold>{title}</Text>
+      <Text dimColor>{hint}</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>Value:</Text>
+        <Box>
+          <Text>{beforeCursor}</Text>
+          <Text backgroundColor="white" color="black">
+            {cursorChar}
+          </Text>
+          <Text>{afterCursor}</Text>
+        </Box>
+      </Box>
+      <Text dimColor>[Enter] continue · empty [Enter] go back · [Esc] cancel</Text>
+    </Box>
+  )
+}
+
+/** Optional API key (masked). Empty Enter submits empty string. */
+function OptionalMaskedKeyInput({
+  title,
+  hint,
+  onSubmit,
+  onCancel,
+}: {
+  title: string
+  hint: string
+  onSubmit: (apiKey: string) => void
+  onCancel: () => void
+}) {
+  const [apiKey, setApiKey] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel()
+      return
+    }
+    if (key.return) {
+      onSubmit(apiKey.trim())
+      return
+    }
+    if (key.backspace || key.delete) {
+      if (cursorOffset > 0) {
+        const newValue = apiKey.slice(0, cursorOffset - 1) + apiKey.slice(cursorOffset)
+        setApiKey(newValue)
+        setCursorOffset(cursorOffset - 1)
+      }
+      return
+    }
+    if (input) {
+      const newValue = apiKey.slice(0, cursorOffset) + input + apiKey.slice(cursorOffset)
+      setApiKey(newValue)
+      setCursorOffset(cursorOffset + input.length)
+    }
+  })
+
+  const displayValue = apiKey ? '*'.repeat(apiKey.length) : ''
+  const cursorChar = cursorOffset < displayValue.length ? displayValue[cursorOffset] : ' '
+  const beforeCursor = displayValue.slice(0, cursorOffset)
+  const afterCursor = displayValue.slice(cursorOffset + 1)
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold>{title}</Text>
+      <Text dimColor>{hint}</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>API Key:</Text>
+        <Box>
+          <Text>{beforeCursor}</Text>
+          <Text backgroundColor="white" color="black">
+            {cursorChar}
+          </Text>
+          <Text>{afterCursor}</Text>
+        </Box>
+      </Box>
+      <Text dimColor>[Enter] fetch models (empty = no key) · [Esc] cancel</Text>
     </Box>
   )
 }
@@ -598,6 +774,15 @@ function ConnectDialog({
           error: `Failed to generate Cursor auth: ${err instanceof Error ? err.message : 'unknown error'}`,
         })
       }
+      return
+    }
+
+    if (providerId === 'custom-openai') {
+      setStep({ type: 'custom-openai', step: 'base' })
+      return
+    }
+    if (providerId === 'custom-anthropic') {
+      setStep({ type: 'custom-anthropic', step: 'base' })
       return
     }
 
@@ -719,6 +904,102 @@ function ConnectDialog({
     setStep({ type: 'select-provider' })
   }
 
+  React.useEffect(() => {
+    if (step.type !== 'custom-openai' || step.step !== 'fetching') {
+      return
+    }
+    const baseUrl = step.baseUrl
+    const apiKey = step.apiKey
+    if (!baseUrl) {
+      return
+    }
+    let cancelled = false
+    void fetchOpenAICompatibleModelIds(baseUrl, apiKey).then(ids => {
+      if (cancelled) {
+        return
+      }
+      if (ids.length === 0) {
+        setStep({
+          type: 'custom-openai',
+          step: 'key',
+          baseUrl,
+          apiKey,
+          fetchError: 'No models returned from /v1/models. Check the base URL and API key.',
+        })
+        return
+      }
+      setStep({
+        type: 'custom-openai',
+        step: 'select',
+        baseUrl,
+        apiKey,
+        models: ids,
+      })
+    }).catch(err => {
+      if (cancelled) {
+        return
+      }
+      setStep({
+        type: 'custom-openai',
+        step: 'key',
+        baseUrl,
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models',
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [step])
+
+  React.useEffect(() => {
+    if (step.type !== 'custom-anthropic' || step.step !== 'fetching') {
+      return
+    }
+    const baseUrl = step.baseUrl
+    const apiKey = step.apiKey
+    if (!baseUrl) {
+      return
+    }
+    let cancelled = false
+    void fetchAnthropicCompatibleModelIds(baseUrl, apiKey).then(ids => {
+      if (cancelled) {
+        return
+      }
+      if (ids.length === 0) {
+        setStep({
+          type: 'custom-anthropic',
+          step: 'key',
+          baseUrl,
+          apiKey,
+          fetchError: 'No models returned from /v1/models. Check the base URL and API key.',
+        })
+        return
+      }
+      setStep({
+        type: 'custom-anthropic',
+        step: 'select',
+        baseUrl,
+        apiKey,
+        models: ids,
+      })
+    }).catch(err => {
+      if (cancelled) {
+        return
+      }
+      setStep({
+        type: 'custom-anthropic',
+        step: 'key',
+        baseUrl,
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models',
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [step])
+
   if (step.type === 'select-provider') {
     return (
       <Dialog title="Connect a Provider" onCancel={handleCancel}>
@@ -826,6 +1107,178 @@ function ConnectDialog({
           onError={(error) => setStep({ type: 'error', error })}
           onCancel={handleCancel}
         />
+      </Dialog>
+    )
+  }
+
+  if (step.type === 'custom-openai') {
+    if (step.step === 'base') {
+      return (
+        <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+          <VisibleLineInput
+            title="Base URL"
+            hint="Include /v1 if your server uses it (e.g. https://api.openai.com/v1 or http://localhost:11434/v1)"
+            onSubmit={url => {
+              setStep({ type: 'custom-openai', step: 'key', baseUrl: url })
+            }}
+            onCancel={handleCancel}
+            onEmptySubmit={() => setStep({ type: 'select-provider' })}
+          />
+        </Dialog>
+      )
+    }
+    if (step.step === 'fetching') {
+      return (
+        <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            <Box>
+              <Spinner />
+              <Text> Fetching models from GET /v1/models…</Text>
+            </Box>
+            <Text dimColor>[Esc] cancel</Text>
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'select' && step.models && step.models.length > 0) {
+      const st = step
+      return (
+        <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            <Text dimColor>OpenAI-compatible · {st.baseUrl}</Text>
+            <Text bold>Select a model</Text>
+            <Select
+              options={st.models.map(m => ({
+                label: <Text>{m}</Text>,
+                value: m,
+              }))}
+              onChange={modelId => {
+                saveGlobalConfig(current => ({
+                  ...current,
+                  connectedProviders: {
+                    ...(current.connectedProviders || {}),
+                    'custom-openai': {
+                      baseUrl: st.baseUrl || '',
+                      defaultModel: modelId,
+                      ...(st.apiKey ? { apiKey: st.apiKey } : {}),
+                      connectedAt: new Date().toISOString(),
+                    },
+                  },
+                  activeProvider: 'custom-openai',
+                  openaiCustomModelsCache: st.models.map(id => ({ id })),
+                }))
+                setStep({ type: 'success', providerId: 'custom-openai' })
+              }}
+              onCancel={handleCancel}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+    return (
+      <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+        <Box flexDirection="column" gap={1}>
+          {step.fetchError ? <Text color="red">{step.fetchError}</Text> : null}
+          <OptionalMaskedKeyInput
+            title="API Key (optional)"
+            hint="Used for /v1/models and chat. Leave empty for local / no-auth."
+            onSubmit={apiKey => {
+              setStep({
+                type: 'custom-openai',
+                step: 'fetching',
+                baseUrl: step.baseUrl,
+                apiKey: apiKey || undefined,
+              })
+            }}
+            onCancel={handleCancel}
+          />
+        </Box>
+      </Dialog>
+    )
+  }
+
+  if (step.type === 'custom-anthropic') {
+    if (step.step === 'base') {
+      return (
+        <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+          <VisibleLineInput
+            title="Base URL"
+            hint="Messages API root (e.g. https://api.anthropic.com or http://localhost:8080)"
+            onSubmit={url => {
+              setStep({ type: 'custom-anthropic', step: 'key', baseUrl: url })
+            }}
+            onCancel={handleCancel}
+            onEmptySubmit={() => setStep({ type: 'select-provider' })}
+          />
+        </Dialog>
+      )
+    }
+    if (step.step === 'fetching') {
+      return (
+        <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            <Box>
+              <Spinner />
+              <Text> Fetching models from GET /v1/models…</Text>
+            </Box>
+            <Text dimColor>[Esc] cancel</Text>
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'select' && step.models && step.models.length > 0) {
+      const st = step
+      return (
+        <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            <Text dimColor>Anthropic-compatible · {st.baseUrl}</Text>
+            <Text bold>Select a model</Text>
+            <Select
+              options={st.models.map(m => ({
+                label: <Text>{m}</Text>,
+                value: m,
+              }))}
+              onChange={modelId => {
+                saveGlobalConfig(current => ({
+                  ...current,
+                  connectedProviders: {
+                    ...(current.connectedProviders || {}),
+                    'custom-anthropic': {
+                      baseUrl: st.baseUrl || '',
+                      defaultModel: modelId,
+                      ...(st.apiKey ? { apiKey: st.apiKey } : {}),
+                      connectedAt: new Date().toISOString(),
+                    },
+                  },
+                  activeProvider: 'custom-anthropic',
+                  anthropicCustomModelsCache: st.models.map(id => ({ id })),
+                }))
+                setStep({ type: 'success', providerId: 'custom-anthropic' })
+              }}
+              onCancel={handleCancel}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+    return (
+      <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+        <Box flexDirection="column" gap={1}>
+          {step.fetchError ? <Text color="red">{step.fetchError}</Text> : null}
+          <OptionalMaskedKeyInput
+            title="API Key (optional)"
+            hint="Used for /v1/models and Messages. Leave empty for local / no-auth."
+            onSubmit={apiKey => {
+              setStep({
+                type: 'custom-anthropic',
+                step: 'fetching',
+                baseUrl: step.baseUrl,
+                apiKey: apiKey || undefined,
+              })
+            }}
+            onCancel={handleCancel}
+          />
+        </Box>
       </Dialog>
     )
   }
