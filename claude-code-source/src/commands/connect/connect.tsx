@@ -893,11 +893,11 @@ function ConnectDialog({
   }
 
   const handleCancel = () => {
-    onDone({ exitState: 'cancelled' })
+    onDone(undefined, { display: 'skip' })
   }
 
   const handleSuccessClose = () => {
-    onDone({ exitState: 'success' })
+    onDone('Provider connected successfully')
   }
 
   const handleErrorClose = () => {
