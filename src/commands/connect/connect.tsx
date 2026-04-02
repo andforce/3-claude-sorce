@@ -21,29 +21,19 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 
 const PROVIDERS: OptionWithDescription<string>[] = [
   {
-    value: 'github-copilot',
-    label: 'GitHub Copilot',
-    hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',
-  },
-  {
     value: 'kimi-for-coding',
     label: 'Kimi For Coding',
     hint: 'Moonshot AI\'s coding-optimized model',
   },
   {
-    value: 'openai',
-    label: 'OpenAI',
-    hint: 'GPT-4, GPT-3.5 Turbo, and more',
+    value: 'github-copilot',
+    label: 'GitHub Copilot',
+    hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',
   },
   {
     value: 'openrouter',
     label: 'OpenRouter',
     hint: 'Unified API for multiple models',
-  },
-  {
-    value: 'anthropic',
-    label: 'Anthropic',
-    hint: 'Claude 3.5 Sonnet, Opus, and Haiku',
   },
   {
     value: 'custom-openai',
@@ -63,20 +53,10 @@ const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlac
     apiKeyUrl: 'https://platform.moonshot.cn/',
     keyPlaceholder: 'sk-...',
   },
-  openai: {
-    name: 'OpenAI',
-    apiKeyUrl: 'https://platform.openai.com/api-keys',
-    keyPlaceholder: 'sk-...',
-  },
   openrouter: {
     name: 'OpenRouter',
     apiKeyUrl: 'https://openrouter.ai/keys',
     keyPlaceholder: 'sk-or-...',
-  },
-  anthropic: {
-    name: 'Anthropic',
-    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
-    keyPlaceholder: 'sk-ant-...',
   },
 }
 

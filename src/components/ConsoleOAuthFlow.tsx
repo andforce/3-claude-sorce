@@ -14,6 +14,7 @@ import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { saveGlobalConfig } from '../utils/config.js';
+import { fetchCopilotModels } from '../services/api/copilotClient.js';
 import { fetchOpenAICompatibleModelIds, fetchAnthropicCompatibleModelIds } from '../services/api/customOpenAIClient.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
@@ -34,6 +35,23 @@ type OAuthStatus = {
 | {
   state: 'kimi_setup';
 } // Show Kimi Code API key setup
+| {
+  state: 'copilot_oauth';
+  userCode: string;
+  verificationUri: string;
+  deviceCode: string;
+  interval: number;
+} // GitHub Copilot device code authorization
+| {
+  state: 'copilot_polling';
+  userCode: string;
+  verificationUri: string;
+  deviceCode: string;
+  interval: number;
+} // Polling for GitHub Copilot device code authorization
+| {
+  state: 'openrouter_setup';
+} // Show OpenRouter API key setup
 | {
   state: 'openai_custom_setup';
   step: 'base' | 'key' | 'fetching_models' | 'select_model';
@@ -71,6 +89,10 @@ type OAuthStatus = {
   message: string;
   toRetry?: OAuthStatus;
 };
+const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz';
+const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code';
+const COPILOT_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000;
 const PASTE_HERE_MSG = 'Paste code here if prompted > ';
 export function ConsoleOAuthFlow({
   onDone,
@@ -163,14 +185,150 @@ export function ConsoleOAuthFlow({
     context: 'Confirmation',
     isActive: oauthStatus.state === 'error' && !!oauthStatus.toRetry
   });
+  useKeybinding('confirm:yes', () => {
+    if (oauthStatus.state !== 'copilot_oauth') {
+      return;
+    }
+    setOAuthStatus({
+      state: 'copilot_polling',
+      userCode: oauthStatus.userCode,
+      verificationUri: oauthStatus.verificationUri,
+      deviceCode: oauthStatus.deviceCode,
+      interval: oauthStatus.interval,
+    });
+  }, {
+    context: 'Confirmation',
+    isActive: oauthStatus.state === 'copilot_oauth'
+  });
   useKeybinding('confirm:no', () => {
     setOAuthStatus({
       state: 'idle'
     });
   }, {
     context: 'Confirmation',
-    isActive: oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup'
+    isActive: oauthStatus.state === 'openrouter_setup' || oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup' || oauthStatus.state === 'copilot_oauth' || oauthStatus.state === 'copilot_polling'
   });
+
+  useEffect(() => {
+    if (oauthStatus.state !== 'copilot_polling') {
+      return;
+    }
+    let stopped = false;
+    async function poll() {
+      let currentInterval = oauthStatus.interval;
+      while (!stopped) {
+        await new Promise(resolve => setTimeout(resolve, currentInterval * 1000 + OAUTH_POLLING_SAFETY_MARGIN_MS));
+        if (stopped) {
+          return;
+        }
+        try {
+          const response = await fetch(COPILOT_ACCESS_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              client_id: COPILOT_CLIENT_ID,
+              device_code: oauthStatus.deviceCode,
+              grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+            }),
+          });
+          if (!response.ok) {
+            setOAuthStatus({
+              state: 'error',
+              message: 'Failed to get GitHub Copilot access token',
+              toRetry: {
+                state: 'idle'
+              }
+            });
+            return;
+          }
+          const data = await response.json() as {
+            access_token?: string;
+            error?: string;
+            interval?: number;
+          };
+          if (data.access_token) {
+            saveGlobalConfig(current => ({
+              ...current,
+              connectedProviders: {
+                ...(current.connectedProviders || {}),
+                'github-copilot': {
+                  oauthToken: data.access_token,
+                  connectedAt: new Date().toISOString(),
+                },
+              },
+              activeProvider: 'github-copilot',
+            }));
+            void fetchCopilotModels().then(models => {
+              saveGlobalConfig(current => ({
+                ...current,
+                copilotModelsCache: {
+                  models,
+                  fetchedAt: Date.now()
+                }
+              }));
+            }).catch(() => {});
+            setOAuthStatus({
+              state: 'success'
+            });
+            return;
+          }
+          if (data.error === 'authorization_pending') {
+            continue;
+          }
+          if (data.error === 'slow_down') {
+            currentInterval = data.interval ?? currentInterval + 5;
+            continue;
+          }
+          if (data.error === 'expired_token') {
+            setOAuthStatus({
+              state: 'error',
+              message: 'GitHub Copilot authorization expired, please try again',
+              toRetry: {
+                state: 'idle'
+              }
+            });
+            return;
+          }
+          if (data.error === 'access_denied') {
+            setOAuthStatus({
+              state: 'error',
+              message: 'GitHub Copilot authorization was denied',
+              toRetry: {
+                state: 'idle'
+              }
+            });
+            return;
+          }
+          if (data.error) {
+            setOAuthStatus({
+              state: 'error',
+              message: `GitHub Copilot OAuth error: ${data.error}`,
+              toRetry: {
+                state: 'idle'
+              }
+            });
+            return;
+          }
+        } catch (err) {
+          setOAuthStatus({
+            state: 'error',
+            message: `Network error: ${err instanceof Error ? err.message : 'unknown'}`,
+            toRetry: {
+              state: 'idle'
+            }
+          });
+          return;
+        }
+      }
+    }
+    void poll();
+    return () => {
+      stopped = true;
+    };
+  }, [oauthStatus]);
 
   useEffect(() => {
     if (oauthStatus.state !== 'openai_custom_setup' || oauthStatus.step !== 'fetching_models') {
@@ -528,18 +686,24 @@ function OAuthStatusMessage(t0) {
         }
         let t6;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-          t6 = [t4, t5, {
-            label: <Text>3rd-party platform ·{" "}<Text dimColor={true}>Amazon Bedrock, Microsoft Foundry, or Vertex AI</Text>{"\n"}</Text>,
-            value: "platform"
-          }, {
-            label: <Text>Kimi Code ·{" "}<Text dimColor={true}>Moonshot AI coding model</Text>{"\n"}</Text>,
+          t6 = [{
+            label: <Text>Kimi For Coding ·{" "}<Text dimColor={true}>Moonshot AI coding model</Text>{"\n"}</Text>,
             value: "kimi_code"
           }, {
-            label: <Text>OpenAI-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
+            label: <Text>GitHub Copilot ·{" "}<Text dimColor={true}>device code OAuth</Text>{"\n"}</Text>,
+            value: "github_copilot"
+          }, {
+            label: <Text>OpenRouter ·{" "}<Text dimColor={true}>API key for multiple models</Text>{"\n"}</Text>,
+            value: "openrouter"
+          }, {
+            label: <Text>Custom OpenAI-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
             value: "openai_custom"
           }, {
-            label: <Text>Anthropic-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
+            label: <Text>Custom Anthropic-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
             value: "anthropic_custom"
+          }, t4, t5, {
+            label: <Text>3rd-party platform ·{" "}<Text dimColor={true}>Amazon Bedrock, Microsoft Foundry, or Vertex AI</Text>{"\n"}</Text>,
+            value: "platform"
           }];
           $[5] = t6;
         } else {
@@ -558,6 +722,51 @@ function OAuthStatusMessage(t0) {
                 setPastedCode("");
                 setOAuthStatus({
                   state: "kimi_setup"
+                });
+              } else if (value_0 === "github_copilot") {
+                logEvent("tengu_oauth_github_copilot_selected", {});
+                fetch(COPILOT_DEVICE_CODE_URL, {
+                  method: 'POST',
+                  headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    client_id: COPILOT_CLIENT_ID,
+                    scope: 'read:user',
+                  }),
+                }).then(async response => {
+                  if (!response.ok) {
+                    throw new Error('Failed to initiate GitHub Copilot authorization');
+                  }
+                  return response.json() as Promise<{
+                    verification_uri: string;
+                    user_code: string;
+                    device_code: string;
+                    interval: number;
+                  }>;
+                }).then(data => {
+                  setOAuthStatus({
+                    state: "copilot_oauth",
+                    userCode: data.user_code,
+                    verificationUri: data.verification_uri,
+                    deviceCode: data.device_code,
+                    interval: data.interval
+                  });
+                }).catch(err => {
+                  setOAuthStatus({
+                    state: "error",
+                    message: err instanceof Error ? err.message : 'Failed to initiate GitHub Copilot authorization',
+                    toRetry: {
+                      state: "idle"
+                    }
+                  });
+                });
+              } else if (value_0 === "openrouter") {
+                logEvent("tengu_oauth_openrouter_selected", {});
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openrouter_setup"
                 });
               } else if (value_0 === "openai_custom") {
                 logEvent("tengu_oauth_openai_custom_selected", {});
@@ -663,9 +872,9 @@ function OAuthStatusMessage(t0) {
     case "kimi_setup":
       {
         return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>Kimi Code Setup</Text>
+            <Text bold={true}>Kimi For Coding Setup</Text>
             <Box flexDirection="column" gap={1}>
-              <Text>Enter your Kimi Code API Key.</Text>
+              <Text>Enter your Kimi For Coding API Key.</Text>
               <Text>Get it from:{" "}
                 <Link url="https://www.kimi.com/code/console">https://www.kimi.com/code/console</Link>
                 {" "}→ API keys
@@ -714,6 +923,70 @@ function OAuthStatusMessage(t0) {
               </Box>
               <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
             </Box>
+          </Box>;
+      }
+    case "copilot_oauth":
+      {
+        return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>GitHub Copilot Authorization</Text>
+            <Text>1. Open:</Text>
+            <Link url={oauthStatus.verificationUri}>
+              <Text dimColor={true}>{oauthStatus.verificationUri}</Text>
+            </Link>
+            <Text>2. Enter code: <Text bold={true}>{oauthStatus.userCode}</Text></Text>
+            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel or <Text bold={true}>Enter</Text> to start polling.</Text>
+          </Box>;
+      }
+    case "copilot_polling":
+      {
+        return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>GitHub Copilot Authorization</Text>
+            <Text>1. Open:</Text>
+            <Link url={oauthStatus.verificationUri}>
+              <Text dimColor={true}>{oauthStatus.verificationUri}</Text>
+            </Link>
+            <Text>2. Enter code: <Text bold={true}>{oauthStatus.userCode}</Text></Text>
+            <Box><Spinner /><Text> Waiting for authorization…</Text></Box>
+            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
+          </Box>;
+      }
+    case "openrouter_setup":
+      {
+        return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>OpenRouter Setup</Text>
+            <Text>Enter your OpenRouter API Key.</Text>
+            <Text>Get it from:{" "}
+              <Link url="https://openrouter.ai/keys">https://openrouter.ai/keys</Link>
+            </Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text>API Key: </Text>
+              <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
+                if (!value_0.trim()) {
+                  setPastedCode("");
+                  setOAuthStatus({
+                    state: "idle"
+                  });
+                  return;
+                }
+                const apiKey = value_0.trim();
+                saveGlobalConfig(current => ({
+                  ...current,
+                  connectedProviders: {
+                    ...(current.connectedProviders || {}),
+                    openrouter: {
+                      apiKey,
+                      connectedAt: new Date().toISOString(),
+                    },
+                  },
+                  activeProvider: 'openrouter',
+                }));
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "success"
+                });
+              }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} mask="*" />
+            </Box>
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
           </Box>;
       }
     case "openai_custom_setup":
