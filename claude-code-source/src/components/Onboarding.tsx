@@ -134,7 +134,7 @@ export function Onboarding({
     steps.push({
       id: 'oauth',
       component: <SkippableStep skip={skipOAuth} onSkip={goToNextStep}>
-          <ConsoleOAuthFlow onDone={goToNextStep} />
+          <ConsoleOAuthFlow onDone={goToNextStep} showExpandedThirdPartyOptions />
         </SkippableStep>
     });
   }
