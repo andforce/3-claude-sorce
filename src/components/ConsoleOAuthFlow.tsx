@@ -36,13 +36,6 @@ type OAuthStatus = {
   state: 'kimi_setup';
 } // Show Kimi Code API key setup
 | {
-  state: 'copilot_oauth';
-  userCode: string;
-  verificationUri: string;
-  deviceCode: string;
-  interval: number;
-} // GitHub Copilot device code authorization
-| {
   state: 'copilot_polling';
   userCode: string;
   verificationUri: string;
@@ -185,28 +178,13 @@ export function ConsoleOAuthFlow({
     context: 'Confirmation',
     isActive: oauthStatus.state === 'error' && !!oauthStatus.toRetry
   });
-  useKeybinding('confirm:yes', () => {
-    if (oauthStatus.state !== 'copilot_oauth') {
-      return;
-    }
-    setOAuthStatus({
-      state: 'copilot_polling',
-      userCode: oauthStatus.userCode,
-      verificationUri: oauthStatus.verificationUri,
-      deviceCode: oauthStatus.deviceCode,
-      interval: oauthStatus.interval,
-    });
-  }, {
-    context: 'Confirmation',
-    isActive: oauthStatus.state === 'copilot_oauth'
-  });
   useKeybinding('confirm:no', () => {
     setOAuthStatus({
       state: 'idle'
     });
   }, {
     context: 'Confirmation',
-    isActive: oauthStatus.state === 'openrouter_setup' || oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup' || oauthStatus.state === 'copilot_oauth' || oauthStatus.state === 'copilot_polling'
+    isActive: oauthStatus.state === 'openrouter_setup' || oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup' || oauthStatus.state === 'copilot_polling'
   });
 
   useEffect(() => {
@@ -747,7 +725,7 @@ function OAuthStatusMessage(t0) {
                   }>;
                 }).then(data => {
                   setOAuthStatus({
-                    state: "copilot_oauth",
+                    state: "copilot_polling",
                     userCode: data.user_code,
                     verificationUri: data.verification_uri,
                     deviceCode: data.device_code,
@@ -923,18 +901,6 @@ function OAuthStatusMessage(t0) {
               </Box>
               <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
             </Box>
-          </Box>;
-      }
-    case "copilot_oauth":
-      {
-        return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>GitHub Copilot Authorization</Text>
-            <Text>1. Open:</Text>
-            <Link url={oauthStatus.verificationUri}>
-              <Text dimColor={true}>{oauthStatus.verificationUri}</Text>
-            </Link>
-            <Text>2. Enter code: <Text bold={true}>{oauthStatus.userCode}</Text></Text>
-            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel or <Text bold={true}>Enter</Text> to start polling.</Text>
           </Box>;
       }
     case "copilot_polling":
