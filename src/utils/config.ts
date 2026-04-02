@@ -582,9 +582,23 @@ export type GlobalConfig = {
 
   // Cached Copilot model list from models.dev
   copilotModelsCache?: {
-    models: Array<{ id: string; label: string; description: string }>
+    models: Array<{
+      id: string
+      label: string
+      description: string
+      supportedEndpoints?: string[]
+    }>
     fetchedAt: number
   }
+
+  // Learned Copilot compatibility per model (e.g. output token parameter).
+  copilotCompatibilityCache?: Record<
+    string,
+    {
+      outputTokenParam?: 'max_tokens' | 'max_completion_tokens'
+      updatedAt: number
+    }
+  >
 
   // Cached Kimi model list from /v1/models
   kimiModelsCache?: Array<{ id: string; owned_by?: string }>

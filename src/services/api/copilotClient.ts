@@ -7,7 +7,19 @@ export type CopilotModelInfo = {
   id: string
   label: string
   description: string
+  supportedEndpoints?: string[]
 }
+
+type CopilotOutputTokenParam = 'max_tokens' | 'max_completion_tokens'
+type CopilotCompatibilityInfo = {
+  outputTokenParam?: CopilotOutputTokenParam
+  modelSupported?: boolean
+  chatCompletionsSupported?: boolean
+  updatedAt: number
+}
+
+const COPILOT_COMPATIBILITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const COPILOT_CHAT_COMPLETIONS_ENDPOINT = '/chat/completions'
 
 export function isCopilotModel(model: string): boolean {
   return model.startsWith('copilot:')
@@ -55,6 +67,61 @@ const FALLBACK_COPILOT_MODELS: CopilotModelInfo[] = [
 ]
 
 let cachedModels: CopilotModelInfo[] | null = null
+let copilotModelsRefreshPromise: Promise<void> | null = null
+
+type CopilotApiModel = {
+  id: string
+  name?: string
+  model_picker_enabled?: boolean
+  policy?: { state?: string }
+  supported_endpoints?: string[]
+}
+
+function supportsCopilotChatCompletions(model: CopilotModelInfo): boolean {
+  return (
+    !model.supportedEndpoints ||
+    model.supportedEndpoints.includes(COPILOT_CHAT_COMPLETIONS_ENDPOINT)
+  )
+}
+
+export async function fetchCopilotModelsFromApi(): Promise<CopilotModelInfo[] | null> {
+  const provider = getCopilotProvider()
+  if (!provider?.oauthToken) return null
+
+  const response = await fetch(`${COPILOT_API_BASE}/models`, {
+    headers: {
+      Authorization: `Bearer ${provider.oauthToken}`,
+      'User-Agent': 'claude-code/2.1.88',
+      'Openai-Intent': 'conversation-edits',
+      'x-initiator': 'user',
+    },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    throw new Error(`Copilot models API failed (${response.status})`)
+  }
+
+  const data = await response.json() as {
+    data?: CopilotApiModel[]
+  }
+  if (!Array.isArray(data.data) || data.data.length === 0) {
+    return null
+  }
+
+  const models = data.data
+    .filter(model => model.model_picker_enabled !== false)
+    .filter(model => model.policy?.state !== 'disabled')
+    .map(
+      (model): CopilotModelInfo => ({
+        id: `copilot:${model.id}`,
+        label: model.name || model.id,
+        description: `${model.name || model.id} via Copilot`,
+        supportedEndpoints: model.supported_endpoints,
+      }),
+    )
+
+  return models.length > 0 ? models : null
+}
 
 export async function fetchCopilotModelsFromModelsDev(): Promise<CopilotModelInfo[]> {
   try {
@@ -81,44 +148,372 @@ export async function fetchCopilotModelsFromModelsDev(): Promise<CopilotModelInf
   }
 }
 
+export async function fetchCopilotModels(): Promise<CopilotModelInfo[]> {
+  try {
+    const apiModels = await fetchCopilotModelsFromApi()
+    if (apiModels && apiModels.length > 0) {
+      return apiModels
+    }
+  } catch {}
+
+  return fetchCopilotModelsFromModelsDev()
+}
+
+function hasCopilotEndpointMetadata(models: CopilotModelInfo[]): boolean {
+  return models.some(model => Array.isArray(model.supportedEndpoints))
+}
+
+function shouldUseCachedCopilotModels(cache: {
+  models: CopilotModelInfo[]
+  fetchedAt: number
+} | null | undefined): boolean {
+  if (!cache || cache.models.length === 0) return false
+  if (!hasCopilotEndpointMetadata(cache.models)) return false
+  return Date.now() - cache.fetchedAt < 3600_000
+}
+
+function refreshCopilotModelsCacheInBackground(): void {
+  if (copilotModelsRefreshPromise || !isCopilotConnected()) {
+    return
+  }
+  copilotModelsRefreshPromise = (async () => {
+    const models = await fetchCopilotModels()
+    cachedModels = models
+    saveGlobalConfig(current => ({
+      ...current,
+      copilotModelsCache: { models, fetchedAt: Date.now() },
+    }))
+  })()
+    .catch(() => {})
+    .finally(() => {
+      copilotModelsRefreshPromise = null
+    })
+}
+
 export async function getCopilotModels(): Promise<CopilotModelInfo[]> {
-  if (cachedModels) return cachedModels
+  if (cachedModels) return filterUnavailableCopilotModels(cachedModels)
 
   const config = getGlobalConfig()
   const cached = config.copilotModelsCache
-  if (cached && cached.models.length > 0) {
-    const age = Date.now() - cached.fetchedAt
-    if (age < 3600_000) {
-      cachedModels = cached.models
-      return cachedModels
-    }
+  if (shouldUseCachedCopilotModels(cached)) {
+    cachedModels = cached.models
+    return filterUnavailableCopilotModels(cachedModels)
   }
 
-  const models = await fetchCopilotModelsFromModelsDev()
+  const models = await fetchCopilotModels()
   cachedModels = models
 
-  saveGlobalConfig({
-    ...config,
+  saveGlobalConfig(current => ({
+    ...current,
     copilotModelsCache: { models, fetchedAt: Date.now() },
-  })
+  }))
 
-  return models
+  return filterUnavailableCopilotModels(models)
 }
 
 export function getCopilotModelsCached(): CopilotModelInfo[] {
-  if (cachedModels) return cachedModels
+  if (cachedModels) {
+    if (!hasCopilotEndpointMetadata(cachedModels)) {
+      refreshCopilotModelsCacheInBackground()
+    }
+    return filterUnavailableCopilotModels(cachedModels)
+  }
 
   const config = getGlobalConfig()
   const cached = config.copilotModelsCache
   if (cached && cached.models.length > 0) {
     cachedModels = cached.models
-    return cachedModels
+    if (!shouldUseCachedCopilotModels(cached)) {
+      refreshCopilotModelsCacheInBackground()
+    }
+    return filterUnavailableCopilotModels(cachedModels)
   }
 
-  return FALLBACK_COPILOT_MODELS
+  refreshCopilotModelsCacheInBackground()
+  return filterUnavailableCopilotModels(FALLBACK_COPILOT_MODELS)
 }
 
 export { FALLBACK_COPILOT_MODELS as COPILOT_MODELS }
+
+function getCachedCopilotCompatibility(
+  modelId: string,
+): CopilotCompatibilityInfo | undefined {
+  const compatibility = getGlobalConfig().copilotCompatibilityCache?.[modelId]
+  if (!compatibility) return undefined
+  if (Date.now() - compatibility.updatedAt > COPILOT_COMPATIBILITY_CACHE_TTL_MS) {
+    return undefined
+  }
+  return compatibility
+}
+
+function filterUnavailableCopilotModels(
+  models: CopilotModelInfo[],
+): CopilotModelInfo[] {
+  return models.filter(model => {
+    if (!supportsCopilotChatCompletions(model)) {
+      return false
+    }
+    const compatibility = getCachedCopilotCompatibility(
+      getCopilotModelId(model.id),
+    )
+    return (
+      compatibility?.modelSupported !== false &&
+      compatibility?.chatCompletionsSupported !== false
+    )
+  })
+}
+
+function saveCopilotCompatibility(
+  modelId: string,
+  updates: Partial<CopilotCompatibilityInfo>,
+): void {
+  saveGlobalConfig(current => {
+    const existing = current.copilotCompatibilityCache?.[modelId]
+    const next = {
+      ...existing,
+      ...updates,
+      updatedAt: Date.now(),
+    } satisfies CopilotCompatibilityInfo
+
+    if (
+      existing?.outputTokenParam === next.outputTokenParam &&
+      existing?.modelSupported === next.modelSupported &&
+      existing?.chatCompletionsSupported === next.chatCompletionsSupported
+    ) {
+      return current
+    }
+
+    return {
+      ...current,
+      copilotCompatibilityCache: {
+        ...current.copilotCompatibilityCache,
+        [modelId]: next,
+      },
+    }
+  })
+}
+
+function getPreferredCopilotOutputTokenParam(
+  modelId: string,
+): CopilotOutputTokenParam {
+  return (
+    getCachedCopilotCompatibility(modelId)?.outputTokenParam ??
+    'max_tokens'
+  )
+}
+
+function savePreferredCopilotOutputTokenParam(
+  modelId: string,
+  outputTokenParam: CopilotOutputTokenParam,
+): void {
+  saveCopilotCompatibility(modelId, { outputTokenParam })
+}
+
+function buildCopilotChatRequestBody(params: {
+  modelId: string
+  messages: OpenAIMessage[]
+  isStreaming: boolean
+  maxTokens?: number
+  tools?: OpenAITool[]
+  outputTokenParam: CopilotOutputTokenParam
+}): Record<string, unknown> {
+  const requestBody: Record<string, unknown> = {
+    model: params.modelId,
+    messages: params.messages,
+    stream: params.isStreaming,
+  }
+
+  if (params.maxTokens) {
+    requestBody[params.outputTokenParam] = params.maxTokens
+  }
+
+  if (params.tools && params.tools.length > 0) {
+    requestBody.tools = params.tools
+    requestBody.tool_choice = 'auto'
+  }
+
+  return requestBody
+}
+
+async function createCopilotErrorInfo(response: Response): Promise<{
+  message?: string
+  code?: string
+}> {
+  const text = await response
+    .clone()
+    .text()
+    .catch(() => '')
+  if (!text) return {}
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: { message?: string; code?: string }
+    }
+    return {
+      message: parsed.error?.message,
+      code: parsed.error?.code,
+    }
+  } catch {
+    return {}
+  }
+}
+
+function createCachedCopilotErrorResponse(
+  message: string,
+  code: string,
+): Response {
+  return new Response(JSON.stringify({ error: { message, code } }), {
+    status: 400,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function getSuggestedCopilotOutputTokenParam(
+  currentParam: CopilotOutputTokenParam,
+  errorMessage: string | undefined,
+): CopilotOutputTokenParam | undefined {
+  if (!errorMessage) return undefined
+  if (
+    currentParam === 'max_tokens' &&
+    errorMessage.includes("Use 'max_completion_tokens' instead")
+  ) {
+    return 'max_completion_tokens'
+  }
+  if (
+    currentParam === 'max_completion_tokens' &&
+    errorMessage.includes("Use 'max_tokens' instead")
+  ) {
+    return 'max_tokens'
+  }
+  return undefined
+}
+
+async function postCopilotChatCompletion(params: {
+  oauthToken: string
+  requestBody: Record<string, unknown>
+  signal?: AbortSignal
+}): Promise<Response> {
+  return fetch(`${COPILOT_API_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${params.oauthToken}`,
+      'User-Agent': 'claude-code/2.1.88',
+      'Openai-Intent': 'conversation-edits',
+      'x-initiator': 'user',
+    },
+    body: JSON.stringify(params.requestBody),
+    signal: params.signal,
+  })
+}
+
+function saveCopilotCompatibilityFromError(
+  modelId: string,
+  errorInfo: { code?: string },
+): void {
+  if (errorInfo.code === 'model_not_supported') {
+    saveCopilotCompatibility(modelId, {
+      modelSupported: false,
+      chatCompletionsSupported: false,
+    })
+  } else if (errorInfo.code === 'unsupported_api_for_model') {
+    saveCopilotCompatibility(modelId, {
+      chatCompletionsSupported: false,
+    })
+  }
+}
+
+async function sendCopilotChatCompletion(params: {
+  oauthToken: string
+  modelId: string
+  messages: OpenAIMessage[]
+  isStreaming: boolean
+  maxTokens?: number
+  tools?: OpenAITool[]
+  signal?: AbortSignal
+}): Promise<Response> {
+  const compatibility = getCachedCopilotCompatibility(params.modelId)
+  if (compatibility?.modelSupported === false) {
+    return createCachedCopilotErrorResponse(
+      `Copilot model "${params.modelId}" was previously rejected as unsupported.`,
+      'model_not_supported',
+    )
+  }
+  if (compatibility?.chatCompletionsSupported === false) {
+    return createCachedCopilotErrorResponse(
+      `Copilot model "${params.modelId}" does not support the /chat/completions endpoint.`,
+      'unsupported_api_for_model',
+    )
+  }
+
+  let outputTokenParam = getPreferredCopilotOutputTokenParam(params.modelId)
+  let requestBody = buildCopilotChatRequestBody({
+    modelId: params.modelId,
+    messages: params.messages,
+    isStreaming: params.isStreaming,
+    maxTokens: params.maxTokens,
+    tools: params.tools,
+    outputTokenParam,
+  })
+
+  let response = await postCopilotChatCompletion({
+    oauthToken: params.oauthToken,
+    requestBody,
+    signal: params.signal,
+  })
+  if (response.ok) {
+    saveCopilotCompatibility(params.modelId, {
+      modelSupported: true,
+      chatCompletionsSupported: true,
+      outputTokenParam,
+    })
+    return response
+  }
+
+  const errorInfo = await createCopilotErrorInfo(response)
+  if (!params.maxTokens) {
+    saveCopilotCompatibilityFromError(params.modelId, errorInfo)
+    return response
+  }
+  const suggestedParam = getSuggestedCopilotOutputTokenParam(
+    outputTokenParam,
+    errorInfo.message,
+  )
+  if (!suggestedParam) {
+    saveCopilotCompatibilityFromError(params.modelId, errorInfo)
+    return response
+  }
+
+  savePreferredCopilotOutputTokenParam(params.modelId, suggestedParam)
+  outputTokenParam = suggestedParam
+  requestBody = buildCopilotChatRequestBody({
+    modelId: params.modelId,
+    messages: params.messages,
+    isStreaming: params.isStreaming,
+    maxTokens: params.maxTokens,
+    tools: params.tools,
+    outputTokenParam,
+  })
+
+  response = await postCopilotChatCompletion({
+    oauthToken: params.oauthToken,
+    requestBody,
+    signal: params.signal,
+  })
+  if (response.ok) {
+    saveCopilotCompatibility(params.modelId, {
+      modelSupported: true,
+      chatCompletionsSupported: true,
+      outputTokenParam,
+    })
+    return response
+  }
+
+  saveCopilotCompatibilityFromError(
+    params.modelId,
+    await createCopilotErrorInfo(response),
+  )
+  return response
+}
 
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -279,29 +674,13 @@ export async function* streamCopilotRequest(
   const copilotModelId = getCopilotModelId(model)
   const openaiMessages = convertAnthropicMessagesToOpenAI(messages, systemPrompt)
   const openaiTools = tools.length > 0 ? convertAnthropicToolsToOpenAI(tools) : undefined
-
-  const requestBody: Record<string, unknown> = {
-    model: copilotModelId,
+  const response = await sendCopilotChatCompletion({
+    oauthToken: provider.oauthToken,
+    modelId: copilotModelId,
     messages: openaiMessages,
-    stream: true,
-    max_tokens: 16384,
-  }
-
-  if (openaiTools && openaiTools.length > 0) {
-    requestBody.tools = openaiTools
-    requestBody.tool_choice = 'auto'
-  }
-
-  const response = await fetch(`${COPILOT_API_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${provider.oauthToken}`,
-      'User-Agent': 'claude-code/2.1.88',
-      'Openai-Intent': 'conversation-edits',
-      'x-initiator': 'user',
-    },
-    body: JSON.stringify(requestBody),
+    isStreaming: true,
+    maxTokens: 16384,
+    tools: openaiTools,
     signal,
   })
 
@@ -526,32 +905,18 @@ export function createCopilotFetchOverride(
     const openaiTools = anthropicTools.length > 0 ? convertAnthropicToolsToOpenAI(anthropicTools) : undefined
 
     const isStreaming = anthropicBody.stream === true
+    const maxTokens =
+      typeof anthropicBody.max_tokens === 'number'
+        ? anthropicBody.max_tokens
+        : undefined
 
-    const requestBody: Record<string, unknown> = {
-      model: copilotModelId,
+    const copilotResponse = await sendCopilotChatCompletion({
+      oauthToken: provider.oauthToken,
+      modelId: copilotModelId,
       messages: openaiMessages,
-      stream: isStreaming,
-    }
-
-    if (anthropicBody.max_tokens) {
-      requestBody.max_tokens = anthropicBody.max_tokens
-    }
-
-    if (openaiTools && openaiTools.length > 0) {
-      requestBody.tools = openaiTools
-      requestBody.tool_choice = 'auto'
-    }
-
-    const copilotResponse = await fetch(`${COPILOT_API_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${provider.oauthToken}`,
-        'User-Agent': 'claude-code/2.1.88',
-        'Openai-Intent': 'conversation-edits',
-        'x-initiator': 'user',
-      },
-      body: JSON.stringify(requestBody),
+      isStreaming,
+      maxTokens,
+      tools: openaiTools,
       signal: init?.signal,
     })
 

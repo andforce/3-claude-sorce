@@ -7,7 +7,7 @@ import { Dialog } from '../../components/design-system/Dialog.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
 import { Select, OptionWithDescription } from '../../components/CustomSelect/index.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
-import { fetchCopilotModelsFromModelsDev } from '../../services/api/copilotClient.js'
+import { fetchCopilotModels } from '../../services/api/copilotClient.js'
 import { generateCursorAuthParams, getTokenExpiry, fetchCursorUsableModels } from '../../services/api/cursorClient.js'
 import {
   fetchOpenAICompatibleModelIds,
@@ -840,7 +840,7 @@ function ConnectDialog({
       }))
 
       // Pre-fetch and cache the model list in background
-      fetchCopilotModelsFromModelsDev().then(models => {
+      fetchCopilotModels().then(models => {
         saveGlobalConfig(current => ({
           ...current,
           copilotModelsCache: { models, fetchedAt: Date.now() },
