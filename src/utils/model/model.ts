@@ -28,6 +28,8 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
+import { getGlobalConfig } from '../config.js'
+import { getCopilotModelsCached } from '../../services/api/copilotClient.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -166,10 +168,53 @@ export function getRuntimeMainLoopModel(params: {
   return mainLoopModel
 }
 
+function getActiveProviderDefaultModelSetting(): ModelName | undefined {
+  const config = getGlobalConfig()
+
+  switch (config.activeProvider) {
+    case 'kimi-for-coding': {
+      const provider = config.connectedProviders?.['kimi-for-coding']
+      const modelId = provider?.defaultModel ?? config.kimiModelsCache?.[0]?.id
+      if (!provider?.apiKey || !modelId) {
+        return undefined
+      }
+      return modelId
+    }
+    case 'github-copilot': {
+      const provider = config.connectedProviders?.['github-copilot']
+      if (!provider?.oauthToken) {
+        return undefined
+      }
+      return getCopilotModelsCached()[0]?.id
+    }
+    case 'custom-openai': {
+      const provider = config.connectedProviders?.['custom-openai']
+      const modelId =
+        provider?.defaultModel ?? config.openaiCustomModelsCache?.[0]?.id
+      if (!provider?.baseUrl || !modelId) {
+        return undefined
+      }
+      return `custom-openai:${modelId}`
+    }
+    case 'custom-anthropic': {
+      const provider = config.connectedProviders?.['custom-anthropic']
+      const modelId =
+        provider?.defaultModel ?? config.anthropicCustomModelsCache?.[0]?.id
+      if (!provider?.baseUrl || !modelId) {
+        return undefined
+      }
+      return modelId
+    }
+    default:
+      return undefined
+  }
+}
+
 /**
  * Get the default main loop model setting.
  *
  * This handles the built-in default:
+ * - First available model from the active third-party provider
  * - Opus for Max and Team Premium users
  * - Sonnet 4.6 for all other users (including Team Standard, Pro, Enterprise)
  *
@@ -182,6 +227,11 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       getAntModelOverrideConfig()?.defaultModel ??
       getDefaultOpusModel() + '[1m]'
     )
+  }
+
+  const activeProviderDefaultModel = getActiveProviderDefaultModelSetting()
+  if (activeProviderDefaultModel) {
+    return activeProviderDefaultModel
   }
 
   // Max users get Opus as default

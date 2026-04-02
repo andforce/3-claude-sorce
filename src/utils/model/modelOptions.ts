@@ -18,11 +18,11 @@ import { getAPIProvider } from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
+  getDefaultMainLoopModelSetting,
   getClaudeAiUserDefaultModelDescription,
   getDefaultSonnetModel,
   getDefaultOpusModel,
   getDefaultHaikuModel,
-  getDefaultMainLoopModelSetting,
   getMarketingNameForModel,
   getUserSpecifiedModelSetting,
   isOpus1mMergeEnabled,
@@ -44,6 +44,49 @@ export type ModelOption = {
   descriptionForModel?: string
 }
 
+function getActiveProviderDefaultDescription(): string | undefined {
+  const config = getGlobalConfig()
+
+  switch (config.activeProvider) {
+    case 'kimi-for-coding': {
+      const provider = config.connectedProviders?.['kimi-for-coding']
+      const modelId = provider?.defaultModel ?? config.kimiModelsCache?.[0]?.id
+      if (!provider?.apiKey || !modelId) {
+        return undefined
+      }
+      return `Use the active provider's default model (currently [Kimi] ${modelId})`
+    }
+    case 'github-copilot': {
+      const provider = config.connectedProviders?.['github-copilot']
+      const model = getCopilotModelsCached()[0]
+      if (!provider?.oauthToken || !model) {
+        return undefined
+      }
+      return `Use the active provider's default model (currently ${model.label})`
+    }
+    case 'custom-openai': {
+      const provider = config.connectedProviders?.['custom-openai']
+      const modelId =
+        provider?.defaultModel ?? config.openaiCustomModelsCache?.[0]?.id
+      if (!provider?.baseUrl || !modelId) {
+        return undefined
+      }
+      return `Use the active provider's default model (currently [Custom OpenAI] ${modelId})`
+    }
+    case 'custom-anthropic': {
+      const provider = config.connectedProviders?.['custom-anthropic']
+      const modelId =
+        provider?.defaultModel ?? config.anthropicCustomModelsCache?.[0]?.id
+      if (!provider?.baseUrl || !modelId) {
+        return undefined
+      }
+      return `Use the active provider's default model (currently [Custom Anthropic] ${modelId})`
+    }
+    default:
+      return undefined
+  }
+}
+
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
   if (process.env.USER_TYPE === 'ant') {
     const currentModel = renderDefaultModelSetting(
@@ -54,6 +97,15 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
       label: 'Default (recommended)',
       description: `Use the default model for Ants (currently ${currentModel})`,
       descriptionForModel: `Default model (currently ${currentModel})`,
+    }
+  }
+
+  const activeProviderDefaultDescription = getActiveProviderDefaultDescription()
+  if (activeProviderDefaultDescription) {
+    return {
+      value: null,
+      label: 'Default (recommended)',
+      description: activeProviderDefaultDescription,
     }
   }
 
