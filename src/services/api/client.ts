@@ -30,7 +30,6 @@ import {
 } from '../../utils/envUtils.js'
 import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
 import { getGlobalConfig } from '../../utils/config.js'
-import { isCursorModel, createCursorFetchOverride } from './cursorClient.js'
 import { isCustomOpenAIModel, createCustomOpenAIFetchOverride } from './customOpenAIClient.js'
 
 /**
@@ -140,12 +139,10 @@ export async function getAnthropicClient({
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
-  // When using a Copilot, Cursor, or custom OpenAI-compatible model, intercept fetch
+  // When using a Copilot or custom OpenAI-compatible model, intercept fetch
   let effectiveFetchOverride = fetchOverride
   if (model && isCopilotModel(model)) {
     effectiveFetchOverride = createCopilotFetchOverride(model)
-  } else if (model && isCursorModel(model)) {
-    effectiveFetchOverride = createCursorFetchOverride(model)
   } else if (model && isCustomOpenAIModel(model)) {
     effectiveFetchOverride = createCustomOpenAIFetchOverride(model)
   }
@@ -165,11 +162,11 @@ export async function getAnthropicClient({
     }),
   }
 
-  // For Copilot/Cursor/custom OpenAI-compatible models, skip provider-specific client
+  // For Copilot/custom OpenAI-compatible models, skip provider-specific client
   // creation and use the Anthropic client with a fetch override that converts requests.
-  if (model && (isCopilotModel(model) || isCursorModel(model) || isCustomOpenAIModel(model))) {
+  if (model && (isCopilotModel(model) || isCustomOpenAIModel(model))) {
     const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-      apiKey: 'external-provider-placeholder-key',
+      apiKey: 'copilot-placeholder-key',
       ...ARGS,
       ...(isDebugToStdErr() && { logger: createStderrLogger() }),
     }

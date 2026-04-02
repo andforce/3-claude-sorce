@@ -14,7 +14,6 @@ import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { saveGlobalConfig } from '../utils/config.js';
-import { generateCursorAuthParams, getTokenExpiry, fetchCursorUsableModels } from '../services/api/cursorClient.js';
 import { fetchOpenAICompatibleModelIds, fetchAnthropicCompatibleModelIds } from '../services/api/customOpenAIClient.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
@@ -35,15 +34,6 @@ type OAuthStatus = {
 | {
   state: 'kimi_setup';
 } // Show Kimi Code API key setup
-| {
-  state: 'cursor_preparing';
-} // Generating Cursor PKCE params
-| {
-  state: 'cursor_oauth';
-  loginUrl: string;
-  uuid: string;
-  verifier: string;
-} // Cursor browser login + poll (same as /connect → Cursor)
 | {
   state: 'openai_custom_setup';
   step: 'base' | 'key' | 'fetching_models' | 'select_model';
@@ -173,150 +163,14 @@ export function ConsoleOAuthFlow({
     context: 'Confirmation',
     isActive: oauthStatus.state === 'error' && !!oauthStatus.toRetry
   });
-
-  // Cancel Cursor login and return to method list
   useKeybinding('confirm:no', () => {
     setOAuthStatus({
       state: 'idle'
     });
   }, {
     context: 'Confirmation',
-    isActive: oauthStatus.state === 'cursor_preparing' || oauthStatus.state === 'cursor_oauth' || oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup'
+    isActive: oauthStatus.state === 'openai_custom_setup' || oauthStatus.state === 'anthropic_custom_setup'
   });
-
-  useEffect(() => {
-    if (oauthStatus.state !== 'cursor_preparing') {
-      return;
-    }
-    let cancelled = false;
-    void generateCursorAuthParams().then(params => {
-      if (cancelled) {
-        return;
-      }
-      setOAuthStatus({
-        state: 'cursor_oauth',
-        loginUrl: params.loginUrl,
-        uuid: params.uuid,
-        verifier: params.verifier
-      });
-    }).catch(err => {
-      if (cancelled) {
-        return;
-      }
-      setOAuthStatus({
-        state: 'error',
-        message: err instanceof Error ? err.message : 'Failed to start Cursor login',
-        toRetry: {
-          state: 'idle'
-        }
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [oauthStatus.state]);
-
-  useEffect(() => {
-    if (oauthStatus.state !== 'cursor_oauth') {
-      return;
-    }
-    const {
-      uuid,
-      verifier
-    } = oauthStatus;
-    let stopped = false;
-    async function poll() {
-      let delay = 1000;
-      let consecutiveErrors = 0;
-      for (let attempt = 0; attempt < 150; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-        if (stopped) {
-          return;
-        }
-        try {
-          const response = await fetch(`https://api2.cursor.sh/auth/poll?uuid=${uuid}&verifier=${verifier}`);
-          if (response.status === 404) {
-            consecutiveErrors = 0;
-            delay = Math.min(delay * 1.2, 10000);
-            continue;
-          }
-          if (response.ok) {
-            const data = await response.json() as {
-              accessToken: string;
-              refreshToken: string;
-            };
-            const tokenExpiry = getTokenExpiry(data.accessToken);
-            saveGlobalConfig(current => ({
-              ...current,
-              connectedProviders: {
-                ...(current.connectedProviders || {}),
-                cursor: {
-                  oauthToken: data.accessToken,
-                  refreshToken: data.refreshToken,
-                  tokenExpiry,
-                  connectedAt: new Date().toISOString()
-                }
-              },
-              activeProvider: current.activeProvider || 'cursor'
-            }));
-            void fetchCursorUsableModels(data.accessToken).then(models => {
-              if (models && models.length > 0) {
-                saveGlobalConfig(current => ({
-                  ...current,
-                  cursorModelsCache: {
-                    models,
-                    fetchedAt: Date.now()
-                  }
-                }));
-              }
-            }).catch(() => {});
-            setOAuthStatus({
-              state: 'success'
-            });
-            void sendNotification({
-              message: 'Cursor connected successfully',
-              notificationType: 'auth_success'
-            }, terminal);
-            return;
-          }
-          consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
-            setOAuthStatus({
-              state: 'error',
-              message: 'Too many errors during Cursor authentication',
-              toRetry: {
-                state: 'idle'
-              }
-            });
-            return;
-          }
-        } catch (err) {
-          consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
-            setOAuthStatus({
-              state: 'error',
-              message: `Network error: ${err instanceof Error ? err.message : 'unknown'}`,
-              toRetry: {
-                state: 'idle'
-              }
-            });
-            return;
-          }
-        }
-      }
-      setOAuthStatus({
-        state: 'error',
-        message: 'Cursor authentication timeout',
-        toRetry: {
-          state: 'idle'
-        }
-      });
-    }
-    void poll();
-    return () => {
-      stopped = true;
-    };
-  }, [oauthStatus, terminal]);
 
   useEffect(() => {
     if (oauthStatus.state !== 'openai_custom_setup' || oauthStatus.step !== 'fetching_models') {
@@ -681,9 +535,6 @@ function OAuthStatusMessage(t0) {
             label: <Text>Kimi Code ·{" "}<Text dimColor={true}>Moonshot AI coding model</Text>{"\n"}</Text>,
             value: "kimi_code"
           }, {
-            label: <Text>Cursor ·{" "}<Text dimColor={true}>Claude, GPT, Gemini, and more via PKCE browser login</Text>{"\n"}</Text>,
-            value: "cursor"
-          }, {
             label: <Text>OpenAI-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
             value: "openai_custom"
           }, {
@@ -707,11 +558,6 @@ function OAuthStatusMessage(t0) {
                 setPastedCode("");
                 setOAuthStatus({
                   state: "kimi_setup"
-                });
-              } else if (value_0 === "cursor") {
-                logEvent("tengu_oauth_cursor_selected", {});
-                setOAuthStatus({
-                  state: "cursor_preparing"
                 });
               } else if (value_0 === "openai_custom") {
                 logEvent("tengu_oauth_openai_custom_selected", {});
@@ -868,28 +714,6 @@ function OAuthStatusMessage(t0) {
               </Box>
               <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
             </Box>
-          </Box>;
-      }
-    case "cursor_preparing":
-      {
-        return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>Cursor</Text>
-            <Box><Spinner /><Text>Preparing sign-in…</Text></Box>
-            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to go back.</Text>
-          </Box>;
-      }
-    case "cursor_oauth":
-      {
-        return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>Cursor Authorization</Text>
-            <Text>Open this URL in your browser to sign in:</Text>
-            <Link url={oauthStatus.loginUrl}>
-              <Text dimColor={true}>{oauthStatus.loginUrl}</Text>
-            </Link>
-            <Box marginTop={1}>
-              <Box><Spinner /><Text> Waiting for authorization…</Text></Box>
-            </Box>
-            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
           </Box>;
       }
     case "openai_custom_setup":

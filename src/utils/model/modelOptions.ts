@@ -33,7 +33,6 @@ import {
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import { isCopilotConnected, getCopilotModelsCached } from '../../services/api/copilotClient.js'
-import { isCursorConnected, getCursorModelsCached } from '../../services/api/cursorClient.js'
 import { isCustomOpenAIConnected, getCustomOpenAIProvider } from '../../services/api/customOpenAIClient.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -514,20 +513,6 @@ export function getModelOptions(fastMode = false): ModelOption[] {
             description: km.owned_by ? `${km.id} · by ${km.owned_by}` : km.id,
           })
         }
-      }
-    }
-  }
-
-  // Add Cursor models when connected
-  if (isCursorConnected()) {
-    const cursorModels = getCursorModelsCached()
-    for (const cursorModel of cursorModels) {
-      if (!options.some(existing => existing.value === cursorModel.id)) {
-        options.push({
-          value: cursorModel.id,
-          label: `[Cursor] ${cursorModel.label}`,
-          description: cursorModel.description,
-        })
       }
     }
   }

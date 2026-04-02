@@ -8,7 +8,6 @@ import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
 import { Select, OptionWithDescription } from '../../components/CustomSelect/index.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
 import { fetchCopilotModels } from '../../services/api/copilotClient.js'
-import { generateCursorAuthParams, getTokenExpiry, fetchCursorUsableModels } from '../../services/api/cursorClient.js'
 import {
   fetchOpenAICompatibleModelIds,
   fetchAnthropicCompatibleModelIds,
@@ -25,11 +24,6 @@ const PROVIDERS: OptionWithDescription<string>[] = [
     value: 'github-copilot',
     label: 'GitHub Copilot',
     hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',
-  },
-  {
-    value: 'cursor',
-    label: 'Cursor',
-    hint: 'Use Cursor models (Claude, GPT, Gemini, etc.) via PKCE login',
   },
   {
     value: 'kimi-for-coding',
@@ -94,8 +88,6 @@ type ConnectStep =
   | { type: 'error'; error: string }
   | { type: 'copilot-oauth'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
   | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
-  | { type: 'cursor-auth'; loginUrl: string; uuid: string; verifier: string }
-  | { type: 'cursor-polling'; loginUrl: string; uuid: string; verifier: string }
   | {
       type: 'custom-openai'
       step: 'base' | 'key' | 'fetching' | 'select'
@@ -387,138 +379,6 @@ function CopilotPollingDialog({
   )
 }
 
-function CursorAuthDialog({
-  loginUrl,
-  onPollingStart,
-  onCancel,
-}: {
-  loginUrl: string
-  onPollingStart: () => void
-  onCancel: () => void
-}) {
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      onPollingStart()
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [])
-
-  useInput((_, key) => {
-    if (key.escape) {
-      onCancel()
-      return
-    }
-  })
-
-  return (
-    <Box flexDirection="column" gap={1}>
-      <Text bold color="cyan">Cursor Authorization</Text>
-      <Text>
-        Open this URL in your browser to sign in:
-      </Text>
-      <Text color="cyan" underline>{loginUrl}</Text>
-      <Box marginTop={1}>
-        <Text dimColor>Waiting for authorization... (Press Esc to cancel)</Text>
-      </Box>
-    </Box>
-  )
-}
-
-function CursorPollingDialog({
-  loginUrl,
-  uuid,
-  verifier,
-  onSuccess,
-  onError,
-  onCancel,
-}: {
-  loginUrl: string
-  uuid: string
-  verifier: string
-  onSuccess: (accessToken: string, refreshToken: string) => void
-  onError: (error: string) => void
-  onCancel: () => void
-}) {
-  const [status, setStatus] = React.useState('Waiting for authorization...')
-  const cancelledRef = React.useRef(false)
-
-  React.useEffect(() => {
-    let stopped = false
-
-    async function poll() {
-      let delay = 1000
-      let consecutiveErrors = 0
-
-      for (let attempt = 0; attempt < 150; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, delay))
-        if (stopped || cancelledRef.current) return
-
-        try {
-          const response = await fetch(
-            `https://api2.cursor.sh/auth/poll?uuid=${uuid}&verifier=${verifier}`,
-          )
-
-          if (response.status === 404) {
-            consecutiveErrors = 0
-            delay = Math.min(delay * 1.2, 10_000)
-            setStatus('Waiting for authorization...')
-            continue
-          }
-
-          if (response.ok) {
-            const data = await response.json() as {
-              accessToken: string
-              refreshToken: string
-            }
-            onSuccess(data.accessToken, data.refreshToken)
-            return
-          }
-
-          consecutiveErrors++
-          if (consecutiveErrors >= 3) {
-            onError('Too many errors during authentication')
-            return
-          }
-        } catch (err) {
-          consecutiveErrors++
-          if (consecutiveErrors >= 3) {
-            onError(`Network error: ${err instanceof Error ? err.message : 'unknown'}`)
-            return
-          }
-        }
-      }
-
-      onError('Authentication timeout')
-    }
-
-    void poll()
-
-    return () => {
-      stopped = true
-    }
-  }, [uuid, verifier])
-
-  useInput((_, key) => {
-    if (key.escape) {
-      cancelledRef.current = true
-      onCancel()
-    }
-  })
-
-  return (
-    <Box flexDirection="column" gap={1}>
-      <Text bold color="cyan">Cursor Authorization</Text>
-      <Text>
-        Open: <Text color="cyan" underline>{loginUrl}</Text>
-      </Text>
-      <Box marginTop={1}>
-        <Text dimColor>{status}</Text>
-      </Box>
-      <Text dimColor>Press Esc to cancel</Text>
-    </Box>
-  )
-}
-
 function SuccessDialog({
   providerId,
   onClose,
@@ -533,13 +393,11 @@ function SuccessDialog({
   const providerName =
     providerId === 'github-copilot'
       ? 'GitHub Copilot'
-      : providerId === 'cursor'
-        ? 'Cursor'
-        : providerId === 'custom-openai'
-          ? 'Custom OpenAI-compatible API'
-          : providerId === 'custom-anthropic'
-            ? 'Custom Anthropic-compatible API'
-            : PROVIDER_CONFIG[providerId]?.name ?? providerId
+      : providerId === 'custom-openai'
+        ? 'Custom OpenAI-compatible API'
+        : providerId === 'custom-anthropic'
+          ? 'Custom Anthropic-compatible API'
+          : PROVIDER_CONFIG[providerId]?.name ?? providerId
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -759,24 +617,6 @@ function ConnectDialog({
       return
     }
 
-    if (providerId === 'cursor') {
-      try {
-        const authParams = await generateCursorAuthParams()
-        setStep({
-          type: 'cursor-auth',
-          loginUrl: authParams.loginUrl,
-          uuid: authParams.uuid,
-          verifier: authParams.verifier,
-        })
-      } catch (err) {
-        setStep({
-          type: 'error',
-          error: `Failed to generate Cursor auth: ${err instanceof Error ? err.message : 'unknown error'}`,
-        })
-      }
-      return
-    }
-
     if (providerId === 'custom-openai') {
       setStep({ type: 'custom-openai', step: 'base' })
       return
@@ -852,42 +692,6 @@ function ConnectDialog({
       setStep({
         type: 'error',
         error: error instanceof Error ? error.message : 'Failed to save OAuth token',
-      })
-    }
-  }
-
-  const handleCursorSuccess = (accessToken: string, refreshToken: string) => {
-    try {
-      const tokenExpiry = getTokenExpiry(accessToken)
-      saveGlobalConfig(current => ({
-        ...current,
-        connectedProviders: {
-          ...(current.connectedProviders || {}),
-          cursor: {
-            oauthToken: accessToken,
-            refreshToken,
-            tokenExpiry,
-            connectedAt: new Date().toISOString(),
-          },
-        },
-        activeProvider: current.activeProvider || 'cursor',
-      }))
-
-      // Fetch and cache the usable model list in background
-      fetchCursorUsableModels(accessToken).then(models => {
-        if (models && models.length > 0) {
-          saveGlobalConfig(current => ({
-            ...current,
-            cursorModelsCache: { models, fetchedAt: Date.now() },
-          }))
-        }
-      }).catch(() => {})
-
-      setStep({ type: 'success', providerId: 'cursor' })
-    } catch (error) {
-      setStep({
-        type: 'error',
-        error: error instanceof Error ? error.message : 'Failed to save Cursor credentials',
       })
     }
   }
@@ -1070,40 +874,6 @@ function ConnectDialog({
           deviceCode={step.deviceCode}
           interval={step.interval}
           onSuccess={handleCopilotSuccess}
-          onError={(error) => setStep({ type: 'error', error })}
-          onCancel={handleCancel}
-        />
-      </Dialog>
-    )
-  }
-
-  if (step.type === 'cursor-auth') {
-    return (
-      <Dialog title="Cursor" onCancel={handleCancel}>
-        <CursorAuthDialog
-          loginUrl={step.loginUrl}
-          onPollingStart={() => {
-            setStep({
-              type: 'cursor-polling',
-              loginUrl: step.loginUrl,
-              uuid: step.uuid,
-              verifier: step.verifier,
-            })
-          }}
-          onCancel={handleCancel}
-        />
-      </Dialog>
-    )
-  }
-
-  if (step.type === 'cursor-polling') {
-    return (
-      <Dialog title="Cursor" onCancel={handleCancel}>
-        <CursorPollingDialog
-          loginUrl={step.loginUrl}
-          uuid={step.uuid}
-          verifier={step.verifier}
-          onSuccess={handleCursorSuccess}
           onError={(error) => setStep({ type: 'error', error })}
           onCancel={handleCancel}
         />

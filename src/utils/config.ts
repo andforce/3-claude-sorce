@@ -602,13 +602,6 @@ export type GlobalConfig = {
 
   // Cached Kimi model list from /v1/models
   kimiModelsCache?: Array<{ id: string; owned_by?: string }>
-
-  // Cached Cursor model list
-  cursorModelsCache?: {
-    models: Array<{ id: string; label: string; description: string }>
-    fetchedAt: number
-  }
-
   /** From GET /v1/models after Custom OpenAI-compatible login */
   openaiCustomModelsCache?: Array<{ id: string }>
 
@@ -619,8 +612,6 @@ export type GlobalConfig = {
 export type ConnectedProviderInfo = {
   apiKey?: string
   oauthToken?: string
-  refreshToken?: string
-  tokenExpiry?: number
   enterpriseUrl?: string
   /** OpenAI-compatible or Anthropic Messages API base (e.g. https://host or http://localhost:11434/v1) */
   baseUrl?: string
