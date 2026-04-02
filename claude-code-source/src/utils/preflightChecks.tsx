@@ -15,6 +15,10 @@ export interface PreflightCheckResult {
   sslHint?: string;
 }
 async function checkEndpoints(): Promise<PreflightCheckResult> {
+  // Mock: skip Anthropic connectivity preflight (always pass). Set CLAUDE_CODE_SKIP_PREFLIGHT_CHECK=0 to restore real checks.
+  if (process.env.CLAUDE_CODE_SKIP_PREFLIGHT_CHECK !== '0') {
+    return { success: true };
+  }
   try {
     const oauthConfig = getOauthConfig();
     const tokenUrl = new URL(oauthConfig.TOKEN_URL);
