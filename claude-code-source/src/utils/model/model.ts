@@ -28,6 +28,10 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
+import {
+  isCustomOpenAIModel,
+  getCustomOpenAIModelDisplayName,
+} from '../../services/api/openaiCompatibleClient.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -393,6 +397,9 @@ function maskModelCodename(baseName: string): string {
 }
 
 export function renderModelName(model: ModelName): string {
+  if (isCustomOpenAIModel(model)) {
+    return getCustomOpenAIModelDisplayName(model) ?? model
+  }
   const publicName = getPublicModelDisplayName(model)
   if (publicName) {
     return publicName

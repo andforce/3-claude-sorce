@@ -29,6 +29,10 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import { isCopilotModel, createCopilotFetchOverride } from './copilotClient.js'
+import {
+  isCustomOpenAIModel,
+  createCustomOpenAIFetchOverride,
+} from './openaiCompatibleClient.js'
 
 /**
  * Environment variables for different client types:
@@ -138,9 +142,12 @@ export async function getAnthropicClient({
   }
 
   // When using a Copilot model, intercept fetch to convert Anthropic → OpenAI format
-  const effectiveFetchOverride = model && isCopilotModel(model)
-    ? createCopilotFetchOverride(model)
-    : fetchOverride
+  const effectiveFetchOverride =
+    model && isCopilotModel(model)
+      ? createCopilotFetchOverride(model)
+      : model && isCustomOpenAIModel(model)
+        ? createCustomOpenAIFetchOverride(model)
+        : fetchOverride
 
   const resolvedFetch = buildFetch(effectiveFetchOverride, source)
 
@@ -159,9 +166,9 @@ export async function getAnthropicClient({
 
   // For Copilot models, skip all provider-specific client creation and use
   // the standard Anthropic client with our fetch override that handles conversion
-  if (model && isCopilotModel(model)) {
+  if (model && (isCopilotModel(model) || isCustomOpenAIModel(model))) {
     const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-      apiKey: 'copilot-placeholder-key',
+      apiKey: 'third-party-placeholder-key',
       ...ARGS,
       ...(isDebugToStdErr() && { logger: createStderrLogger() }),
     }

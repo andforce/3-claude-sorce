@@ -591,6 +591,12 @@ export type ConnectedProviderInfo = {
   apiKey?: string
   oauthToken?: string
   enterpriseUrl?: string
+  modelsCache?: Array<{
+    id: string
+    label: string
+    description: string
+  }>
+  modelsFetchedAt?: number
   connectedAt: string
 }
 

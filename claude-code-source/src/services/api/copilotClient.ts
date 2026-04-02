@@ -153,7 +153,7 @@ type AnthropicMessage = {
   content: string | AnthropicContentBlock[]
 }
 
-function convertAnthropicMessagesToOpenAI(
+export function convertAnthropicMessagesToOpenAI(
   messages: AnthropicMessage[],
   systemPrompt?: string,
 ): OpenAIMessage[] {
@@ -243,7 +243,7 @@ function convertAnthropicMessagesToOpenAI(
   return result
 }
 
-function convertAnthropicToolsToOpenAI(
+export function convertAnthropicToolsToOpenAI(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): OpenAITool[] {
   return tools.map(tool => ({
@@ -633,7 +633,7 @@ export function createCopilotFetchOverride(
   }
 }
 
-function convertOpenAIStreamToAnthropic(
+export function convertOpenAIStreamToAnthropic(
   openaiStream: ReadableStream<Uint8Array>,
   model: string,
 ): ReadableStream<Uint8Array> {

@@ -1,13 +1,17 @@
-import { feature } from 'bun:bundle'
 import * as React from 'react'
 import { Box, Text, useInput } from '../../ink.js'
 import type { LocalJSXCommandContext } from '../../commands.js'
 import type { LocalJSXCommandOnDone } from '../../types/command.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
-import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
+import TextInput from '../../components/TextInput.js'
+import { useTerminalSize } from '../../hooks/useTerminalSize.js'
+import { saveGlobalConfig } from '../../utils/config.js'
 import { Select, OptionWithDescription } from '../../components/CustomSelect/index.js'
-import { useAppState, useSetAppState } from '../../state/AppState.js'
 import { fetchCopilotModelsFromModelsDev } from '../../services/api/copilotClient.js'
+import {
+  CUSTOM_OPENAI_PROVIDER_ID,
+  fetchCustomOpenAIModels,
+} from '../../services/api/openaiCompatibleClient.js'
 
 const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz'
 const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -40,6 +44,11 @@ const PROVIDERS: OptionWithDescription<string>[] = [
     label: 'Anthropic',
     hint: 'Claude 3.5 Sonnet, Opus, and Haiku',
   },
+  {
+    value: 'others',
+    label: 'Others',
+    hint: 'Use your own OpenAI-compatible base URL and API key',
+  },
 ]
 
 const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlaceholder: string }> = {
@@ -63,64 +72,100 @@ const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlac
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     keyPlaceholder: 'sk-ant-...',
   },
+  others: {
+    name: 'Others',
+    apiKeyUrl: 'Your provider console',
+    keyPlaceholder: 'token',
+  },
 }
 
 type ConnectStep =
   | { type: 'select-provider' }
-  | { type: 'enter-api-key'; providerId: string }
-  | { type: 'confirm'; providerId: string; apiKey: string }
+  | { type: 'enter-base-url'; providerId: 'others' }
+  | { type: 'enter-api-key'; providerId: string; baseUrl?: string }
+  | { type: 'confirm'; providerId: string; apiKey: string; baseUrl?: string }
   | { type: 'success'; providerId: string }
   | { type: 'error'; error: string }
   | { type: 'copilot-oauth'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
   | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
 
+const BASE_URL_PROMPT = 'Base URL > '
+const API_KEY_PROMPT = 'API Key > '
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim()
+  const parsed = new URL(trimmed)
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error('Base URL must start with http:// or https://')
+  }
+  return parsed.toString().replace(/\/$/, '')
+}
+
+function BaseUrlInput({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (baseUrl: string) => void
+  onCancel: () => void
+}) {
+  const columns = useTerminalSize().columns
+  const [baseUrl, setBaseUrl] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text>Others</Text>
+      <Text dimColor>Enter your provider&apos;s OpenAI-compatible base URL.</Text>
+      <Text dimColor>Example: https://your-provider.example.com/v1</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>Base URL:</Text>
+        <Box>
+          <TextInput
+            value={baseUrl}
+            onChange={setBaseUrl}
+            onSubmit={value => {
+              const trimmed = value.trim()
+              if (trimmed) {
+                onSubmit(trimmed)
+              }
+            }}
+            onExit={onCancel}
+            columns={Math.max(20, columns - BASE_URL_PROMPT.length - 4)}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+            showCursor
+            focus
+          />
+        </Box>
+      </Box>
+      <Text dimColor>{BASE_URL_PROMPT}Press Enter to continue, Esc to cancel</Text>
+    </Box>
+  )
+}
+
 function ApiKeyInput({
   providerId,
+  baseUrl,
   onSubmit,
   onCancel,
 }: {
   providerId: string
+  baseUrl?: string
   onSubmit: (apiKey: string) => void
   onCancel: () => void
 }) {
+  const columns = useTerminalSize().columns
   const [apiKey, setApiKey] = React.useState('')
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const provider = PROVIDER_CONFIG[providerId]
 
-  useInput((input, key) => {
-    if (key.escape) {
-      onCancel()
-      return
-    }
-    if (key.return) {
-      if (apiKey.trim()) {
-        onSubmit(apiKey.trim())
-      }
-      return
-    }
-    if (key.backspace || key.delete) {
-      if (cursorOffset > 0) {
-        const newValue = apiKey.slice(0, cursorOffset - 1) + apiKey.slice(cursorOffset)
-        setApiKey(newValue)
-        setCursorOffset(cursorOffset - 1)
-      }
-      return
-    }
-    if (input) {
-      const newValue = apiKey.slice(0, cursorOffset) + input + apiKey.slice(cursorOffset)
-      setApiKey(newValue)
-      setCursorOffset(cursorOffset + input.length)
-    }
-  })
-
-  const displayValue = apiKey ? '*'.repeat(apiKey.length) : ''
-  const cursorChar = cursorOffset < displayValue.length ? displayValue[cursorOffset] : ' '
-  const beforeCursor = displayValue.slice(0, cursorOffset)
-  const afterCursor = displayValue.slice(cursorOffset + 1)
-
   return (
     <Box flexDirection="column" gap={1}>
       <Text>{provider.name}</Text>
+      {baseUrl ? (
+        <Text dimColor>
+          Base URL: <Text>{baseUrl}</Text>
+        </Text>
+      ) : null}
       <Text dimColor>
         Get your API key from:{' '}
         <Text color="cyan" underline>
@@ -130,14 +175,26 @@ function ApiKeyInput({
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>API Key:</Text>
         <Box>
-          <Text>{beforeCursor}</Text>
-          <Text backgroundColor="white" color="black">
-            {cursorChar}
-          </Text>
-          <Text>{afterCursor}</Text>
+          <TextInput
+            value={apiKey}
+            onChange={setApiKey}
+            onSubmit={value => {
+              const trimmed = value.trim()
+              if (trimmed) {
+                onSubmit(trimmed)
+              }
+            }}
+            onExit={onCancel}
+            columns={Math.max(20, columns - API_KEY_PROMPT.length - 4)}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+            showCursor
+            focus
+            mask="*"
+          />
         </Box>
       </Box>
-      <Text dimColor>Press Enter to continue, Esc to cancel</Text>
+      <Text dimColor>{API_KEY_PROMPT}Press Enter to continue, Esc to cancel</Text>
     </Box>
   )
 }
@@ -145,11 +202,13 @@ function ApiKeyInput({
 function ConfirmDialog({
   providerId,
   apiKey,
+  baseUrl,
   onConfirm,
   onCancel,
 }: {
   providerId: string
   apiKey: string
+  baseUrl?: string
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -172,6 +231,11 @@ function ConfirmDialog({
       <Text>
         Connect to <Text bold>{provider.name}</Text>?
       </Text>
+      {baseUrl ? (
+        <Text dimColor>
+          Base URL: <Text color="cyan">{baseUrl}</Text>
+        </Text>
+      ) : null}
       <Text dimColor>
         API Key: <Text color="yellow">{maskedKey}</Text>
       </Text>
@@ -359,7 +423,12 @@ function SuccessDialog({
     onClose()
   })
 
-  const providerName = providerId === 'github-copilot' ? 'GitHub Copilot' : PROVIDER_CONFIG[providerId]?.name ?? providerId
+  const providerName =
+    providerId === 'github-copilot'
+      ? 'GitHub Copilot'
+      : providerId === CUSTOM_OPENAI_PROVIDER_ID
+        ? 'Others'
+        : PROVIDER_CONFIG[providerId]?.name ?? providerId
 
   return (
     <Box flexDirection="column" gap={1}>
@@ -398,7 +467,6 @@ function ConnectDialog({
   onDone: LocalJSXCommandOnDone
 }) {
   const [step, setStep] = React.useState<ConnectStep>({ type: 'select-provider' })
-  const setAppState = useSetAppState()
 
   const handleProviderSelect = async (providerId: string) => {
     if (providerId === 'github-copilot') {
@@ -443,6 +511,11 @@ function ConnectDialog({
       return
     }
 
+    if (providerId === 'others') {
+      setStep({ type: 'enter-base-url', providerId: 'others' })
+      return
+    }
+
     if (!PROVIDER_CONFIG[providerId]) {
       setStep({ type: 'error', error: `Unknown provider: ${providerId}` })
       return
@@ -452,28 +525,78 @@ function ConnectDialog({
 
   const handleApiKeySubmit = (apiKey: string) => {
     if (step.type !== 'enter-api-key') return
-    setStep({ type: 'confirm', providerId: step.providerId, apiKey })
+    setStep({
+      type: 'confirm',
+      providerId: step.providerId,
+      apiKey,
+      baseUrl: 'baseUrl' in step ? step.baseUrl : undefined,
+    })
+  }
+
+  const handleBaseUrlSubmit = (baseUrl: string) => {
+    try {
+      const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+      setStep({
+        type: 'enter-api-key',
+        providerId: 'others',
+        baseUrl: normalizedBaseUrl,
+      })
+    } catch (error) {
+      setStep({
+        type: 'error',
+        error: error instanceof Error ? error.message : 'Invalid base URL',
+      })
+    }
   }
 
   const handleConfirm = async () => {
     if (step.type !== 'confirm') return
 
-    const { providerId, apiKey } = step
+    const { providerId, apiKey, baseUrl } = step
 
     try {
+      const storageProviderId =
+        providerId === 'others' ? CUSTOM_OPENAI_PROVIDER_ID : providerId
+
+      if (providerId === 'others') {
+        if (!baseUrl) {
+          throw new Error('Base URL is required')
+        }
+
+        const models = await fetchCustomOpenAIModels(baseUrl, apiKey)
+
+        saveGlobalConfig(current => ({
+          ...current,
+          connectedProviders: {
+            ...(current.connectedProviders || {}),
+            [storageProviderId]: {
+              apiKey,
+              enterpriseUrl: baseUrl,
+              modelsCache: models,
+              modelsFetchedAt: Date.now(),
+              connectedAt: new Date().toISOString(),
+            },
+          },
+          activeProvider: storageProviderId,
+        }))
+
+        setStep({ type: 'success', providerId: storageProviderId })
+        return
+      }
+
       saveGlobalConfig(current => ({
         ...current,
         connectedProviders: {
           ...(current.connectedProviders || {}),
-          [providerId]: {
+          [storageProviderId]: {
             apiKey,
             connectedAt: new Date().toISOString(),
           },
         },
-        activeProvider: current.activeProvider || providerId,
+        activeProvider: current.activeProvider || storageProviderId,
       }))
 
-      setStep({ type: 'success', providerId })
+      setStep({ type: 'success', providerId: storageProviderId })
     } catch (error) {
       setStep({
         type: 'error',
@@ -545,7 +668,23 @@ function ConnectDialog({
       <Dialog title={`Connect ${PROVIDER_CONFIG[step.providerId].name}`} onCancel={handleCancel}>
         <ApiKeyInput
           providerId={step.providerId}
+          baseUrl={'baseUrl' in step ? step.baseUrl : undefined}
           onSubmit={handleApiKeySubmit}
+          onCancel={
+            step.providerId === 'others' && step.baseUrl
+              ? () => setStep({ type: 'enter-base-url', providerId: 'others' })
+              : handleCancel
+          }
+        />
+      </Dialog>
+    )
+  }
+
+  if (step.type === 'enter-base-url') {
+    return (
+      <Dialog title="Connect Others" onCancel={handleCancel}>
+        <BaseUrlInput
+          onSubmit={handleBaseUrlSubmit}
           onCancel={handleCancel}
         />
       </Dialog>
@@ -558,6 +697,7 @@ function ConnectDialog({
         <ConfirmDialog
           providerId={step.providerId}
           apiKey={step.apiKey}
+          baseUrl={step.baseUrl}
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />
@@ -623,7 +763,7 @@ function ConnectDialog({
 
 export async function call(
   onDone: LocalJSXCommandOnDone,
-  context: LocalJSXCommandContext,
+  _context: LocalJSXCommandContext,
 ): Promise<React.ReactNode> {
   return <ConnectDialog onDone={onDone} />
 }

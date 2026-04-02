@@ -33,6 +33,10 @@ import {
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import { isCopilotConnected, getCopilotModelsCached } from '../../services/api/copilotClient.js'
+import {
+  isCustomOpenAIConnected,
+  getCustomOpenAIModelsCached,
+} from '../../services/api/openaiCompatibleClient.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -493,6 +497,19 @@ export function getModelOptions(fastMode = false): ModelOption[] {
           value: copilotModel.id,
           label: `[Copilot] ${copilotModel.label}`,
           description: copilotModel.description,
+        })
+      }
+    }
+  }
+
+  if (isCustomOpenAIConnected()) {
+    const customProviderModels = getCustomOpenAIModelsCached()
+    for (const customModel of customProviderModels) {
+      if (!options.some(existing => existing.value === customModel.id)) {
+        options.push({
+          value: customModel.id,
+          label: `[Others] ${customModel.label}`,
+          description: customModel.description,
         })
       }
     }
