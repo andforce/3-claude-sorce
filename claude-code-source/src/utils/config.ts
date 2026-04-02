@@ -588,11 +588,19 @@ export type GlobalConfig = {
 
   // Cached Kimi model list from /v1/models
   kimiModelsCache?: Array<{ id: string; owned_by?: string }>
+
+  // Cached Cursor model list
+  cursorModelsCache?: {
+    models: Array<{ id: string; label: string; description: string }>
+    fetchedAt: number
+  }
 }
 
 export type ConnectedProviderInfo = {
   apiKey?: string
   oauthToken?: string
+  refreshToken?: string
+  tokenExpiry?: number
   enterpriseUrl?: string
   connectedAt: string
 }

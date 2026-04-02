@@ -102,7 +102,8 @@
     "xss": "*",
     "yaml": "*",
     "zod": "*",
-    "zod-to-json-schema": "*"
+    "zod-to-json-schema": "*",
+    "@bufbuild/protobuf": "^2.11.0"
   },
   "devDependencies": {
     "@types/node": "*",
