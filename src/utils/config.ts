@@ -580,6 +580,9 @@ export type GlobalConfig = {
   connectedProviders?: Record<string, ConnectedProviderInfo>
   activeProvider?: string
 
+  // Telegram bot bridge configuration (/telegram)
+  telegram?: TelegramConfig
+
   // Cached Copilot model list from models.dev
   copilotModelsCache?: {
     models: Array<{
@@ -618,6 +621,15 @@ export type ConnectedProviderInfo = {
   /** Stored default / last-selected model id (custom-openai: chat `model`; custom-anthropic: Messages `model`) */
   defaultModel?: string
   connectedAt: string
+}
+
+export type TelegramConfig = {
+  botToken?: string
+  allowedUserIds?: string[]
+  autoStart?: boolean
+  lastAuthorizedUserId?: string
+  lastChatId?: string
+  updatedAt?: string
 }
 
 /**
