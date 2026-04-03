@@ -112,6 +112,6 @@
     "typescript": "*"
   },
   "bin": {
-    "claude": "./dist/cli.js"
+    "claude": "./bin/claude.cjs"
   }
 }
