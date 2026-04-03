@@ -141,6 +141,7 @@ import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
 import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
+import { useTelegramBridge } from '../hooks/useTelegramBridge.js';
 import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
 import type { Message as MessageType, UserMessage, ProgressMessage, HookResultMessage, PartialCompactDirection } from '../types/message.js';
 import { query } from '../query.js';
@@ -4040,6 +4041,10 @@ export function REPL({
   useMailboxBridge({
     isLoading,
     onSubmitMessage: handleIncomingPrompt
+  });
+  useTelegramBridge({
+    messages,
+    isLoading
   });
 
   // Scheduled tasks from .claude/scheduled_tasks.json (CronCreate/Delete/List)

@@ -43,6 +43,7 @@ import share from './commands/share/index.js'
 import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
 import tasks from './commands/tasks/index.js'
+import telegram from './commands/telegram/index.js'
 import teleport from './commands/teleport/index.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const agentsPlatform =
@@ -305,6 +306,7 @@ const COMMANDS = memoize((): Command[] => [
   statusline,
   stickers,
   tag,
+  telegram,
   theme,
   feedback,
   review,
