@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 2.1.88)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-latest
+            platform: darwin-arm64
+          - os: macos-13
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Update version in build.ts
+        run: |
+          sed -i.bak "s/const VERSION = '[^']*'/const VERSION = '${{ steps.version.outputs.version }}'/" build.ts
+          rm -f build.ts.bak
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build.ts
+
+      - name: Rename output
+        run: |
+          mkdir -p release
+          cp dist/cli.js "release/claude-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-${{ matrix.platform }}
+          path: release/claude-*
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          pattern: claude-*
+          merge-multiple: true
+
+      - name: Generate checksums and manifest
+        id: manifest
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          cd release
+
+          # Generate checksums.txt
+          sha256sum claude-* > checksums.txt
+
+          # Generate manifest.json
+          echo '{"version": "'$VERSION'", "platforms": {' > manifest.json
+
+          first=true
+          for file in claude-*; do
+            platform=$(echo "$file" | sed "s/claude-$VERSION-//")
+            checksum=$(sha256sum "$file" | cut -d' ' -f1)
+
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo ',' >> manifest.json
+            fi
+
+            echo -n '"'$platform'": {"checksum": "'$checksum'"}' >> manifest.json
+          done
+
+          echo '}}' >> manifest.json
+
+          cat manifest.json
+
+      - name: Create or update tag (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$VERSION"
+          git push origin "$VERSION" --force
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          name: ${{ needs.build.outputs.version }}
+          tag_name: ${{ needs.build.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
