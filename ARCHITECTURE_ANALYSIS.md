@@ -437,102 +437,15 @@ const IDLE_SEQUENCE = [0,0,0,0,1,0,0,0,-1,0,0,2,0,0,0]  // 15 帧循环
 
 ## 五、数据收集与追踪系统
 
-### 5.1 追踪架构
+> **已拆分为独立文档**: `DATA_COLLECTION_TRACKING_ANALYSIS.md`
+>
+> 涵盖：遥测架构（Datadog + 1P + OTel + BigQuery）、GrowthBook 远程配置、PII 分级与脱敏、
+> 隐私三级控制、组织级 metrics opt-out、sink 熔断、400+ 个 `tengu_*` 行为事件、
+> 插件/文件操作遥测、外部端点汇总等。
 
-**目录**: `src/services/analytics/`
+**认证路径补充**（保留在此处因为与整体架构强相关）：
 
-```
-┌─────────────────────────────────────────────┐
-│           Analytics Sink (聚合层)             │
-│  - 事件队列 (启动时缓冲)                       │
-│  - 分发到多个后端                             │
-├─────────────────────────────────────────────┤
-│  Datadog (指标) │  1P Event Logging (详细)  │
-│  - 采样率控制    │  - BigQuery 存储           │
-│  - 实时仪表板    │  - PII 分级处理            │
-└─────────────────────────────────────────────┘
-```
-
-### 5.2 收集的数据类型
-
-#### A. 环境元数据
-**文件**: `src/services/analytics/metadata.ts:417-451`
-
-```typescript
-type EnvContext = {
-  platform: string           // mac/linux/windows
-  platformRaw: string        // 原始平台 (含 freebsd/openbsd)
-  arch: string               // arm64/x64
-  nodeVersion: string        // Node 版本
-  terminal: string | null    // iTerm/VS Code/etc
-  packageManagers: string    // npm,pnpm,yarn,brew...
-  runtimes: string           // node,bun,python...
-  isCi: boolean
-  isClaudeCodeRemote: boolean
-  isGithubAction: boolean
-  isClaudeCodeAction: boolean
-  isClaudeAiAuth: boolean
-  version: string
-  versionBase: string        // 基础版本 (如 2.0.36-dev)
-  buildTime: string
-  deploymentEnvironment: string
-  wslVersion?: string
-  linuxDistroId?: string
-  linuxDistroVersion?: string
-  linuxKernel?: string
-  vcs?: string               // git/hg/svn
-  coworkerType?: string      // 协作类型 (feature-gated)
-  claudeCodeContainerId?: string
-  claudeCodeRemoteSessionId?: string
-  tags?: string[]            // 用户标签
-  githubEventName?: string   // GitHub Actions
-  githubActionsRunnerEnvironment?: string
-  githubActionsRunnerOs?: string
-  githubActionRef?: string
-}
-```
-
-#### B. 用户身份标识
-**文件**: `src/utils/user.ts`, `src/utils/auth.ts`
-
-```typescript
-type CoreUserData = {
-  deviceId: string           // 持久化 UUID
-  sessionId: string          // 每次启动生成
-  email?: string             // OAuth 邮箱
-  accountUuid?: string       // Claude.ai 账户 UUID
-  organizationUuid?: string  // 企业组织 UUID
-  userType?: string          // 'ant' 或 undefined
-  subscriptionType?: string  // max/pro/enterprise/team
-  rateLimitTier?: string     // 限流层级
-  firstTokenTime?: number    // 首次使用 token 时间
-  githubActionsMetadata?: {   // CI 环境元数据
-    actor?: string
-    actorId?: string
-    repository?: string
-    repositoryId?: string
-    repositoryOwner?: string
-    repositoryOwnerId?: string
-  }
-}
-```
-
-**设备 ID 生成**:
-```typescript
-// 持久化存储在 ~/.claude/config.json
-function getOrCreateUserID(): string {
-  const config = getGlobalConfig()
-  if (!config.userID) {
-    config.userID = randomUUID()
-    saveGlobalConfig(config)
-  }
-  return config.userID
-}
-```
-
-**需要补充的一点：认证路径比文档原文复杂得多。**
-
-源码里至少有这些认证来源与判断路径：
+源码里认证系统是多来源优先级决策系统，至少有以下路径：
 
 1. **Claude.ai OAuth**
    - `CLAUDE_CODE_OAUTH_TOKEN`
@@ -548,121 +461,9 @@ function getOrCreateUserID(): string {
    - Bedrock / Vertex / Foundry
    - 这些路径会显式改变 `isAnthropicAuthEnabled()` 的判断
 
-4. **Managed OAuth 上下文**
-   - `CLAUDE_CODE_REMOTE=true`
-   - `CLAUDE_CODE_ENTRYPOINT === 'claude-desktop'`
-   - 这时系统会避免错误回落到用户本地 `~/.claude/settings.json` 的 API key
+4. **Managed OAuth** — `CLAUDE_CODE_REMOTE=true` / `claude-desktop` entrypoint
 
-**这意味着：**
-- 认证系统不是“单 token 模式”，而是多来源优先级决策系统。
-- 远程模式、桌面模式、bare 模式、SSH socket 模式都会改变认证源选择。
-- 文档之前只写了“OAuth/API Key”，但实际上源码是在做一套 **认证源裁决器**。
-
-#### C. 仓库标识
-**文件**: `src/services/analytics/metadata.ts:702`
-
-```typescript
-// 用于关联服务端仓库数据
-rh: getRepoRemoteHash()  // 远程 URL 的 SHA256 前16字符
-```
-
-实现:
-```typescript
-const getRepoRemoteHash = memoize(async (): Promise<string | undefined> => {
-  const remote = await getDefaultRemoteUrl()
-  if (!remote) return undefined
-  const hash = createHash('sha256').update(remote).digest('hex')
-  return hash.slice(0, 16)
-})
-```
-
-#### D. 行为事件
-
-| 事件名 | 触发时机 | 数据内容 |
-|-------|---------|---------|
-| `tengu_tool_use_*` | 工具调用 | 工具名、文件扩展名(脱敏) |
-| `tengu_subagent_at_mention` | @agent 使用 | 是否仅子代理、是否前缀 |
-| `tengu_pasted_image_resize_attempt` | 粘贴图片 | 原始大小、压缩后大小 |
-| `tengu_ultraplan_keyword` | 关键词触发 | - |
-| `analytics_sink_attached` | 启动完成 | 队列事件数 |
-| `code_edit_*` | 代码编辑 | 编辑类型、行数 |
-| `tengu_backseat_*` | 观察者分类器 | 建议类型 |
-| `tengu_skill_discovery_*` | 技能发现 | 技能名 |
-
-### 5.3 PII 处理策略
-
-#### 类型标记系统
-**文件**: `src/services/analytics/index.ts`
-
-```typescript
-// 强制开发者显式确认数据安全
-type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS = never
-
-// 使用示例
-logEvent('tengu_tool_use_bash', {
-  file_extensions: getFileExtensionsFromBashCommand(cmd) 
-    as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-})
-```
-
-#### PII 分级字段
-**文件**: `src/services/analytics/metadata.ts`
-
-```typescript
-// PII 标记字段 - 仅发送到特权 BigQuery 列
-type AnalyticsMetadata_I_VERIFIED_THIS_IS_PII_TAGGED = never
-
-// 使用 _PROTO_ 前缀
-const protoPayload = {
-  '_PROTO_userEmail': email as AnalyticsMetadata_I_VERIFIED_THIS_IS_PII_TAGGED,
-  '_PROTO_accountId': accountId as AnalyticsMetadata_I_VERIFIED_THIS_IS_PII_TAGGED,
-}
-```
-
-处理流程:
-1. **普通字段** → Datadog + BigQuery (JSON blob)
-2. **`_PROTO_*` 字段** → stripProtoFields() 剥离 → 仅 BigQuery 列
-
-#### 工具名脱敏
-```typescript
-export function sanitizeToolNameForAnalytics(toolName: string): string {
-  if (toolName.startsWith('mcp__')) {
-    return 'mcp_tool'  // 自定义 MCP 脱敏
-  }
-  return toolName      // 内置工具保留
-}
-```
-
-例外 (记录详细 MCP 信息):
-- Cowork 模式 (`entrypoint=local-agent`)
-- Claude.ai 代理的连接器
-- 官方 MCP 注册表的 URL
-
-### 5.4 用户追踪能力
-
-基于收集的数据，系统可以实现：
-
-#### 设备/用户识别
-| 标识符 | 来源 | 持久性 |
-|-------|------|--------|
-| `deviceId` | `~/.claude/config.json` | 永久 |
-| `sessionId` | 启动时生成 | 单次会话 |
-| `accountUuid` | Claude.ai OAuth | 账户级 |
-| `organizationUuid` | 企业 OAuth | 组织级 |
-
-#### 环境判断
-- **CI 检测**: `isCi`, `isGithubAction`, `GITHUB_ACTIONS`
-- **远程模式**: `isClaudeCodeRemote`, `coworkerType`
-- **WSL**: `wslVersion`
-- **编辑器**: `terminal` (iTerm/VS Code/Hyper 等)
-- **部署环境**: `deploymentEnvironment`
-
-#### 使用模式分析
-- 工具使用频率热力图
-- 模型选择偏好分布
-- 订阅类型与功能使用关联
-- 会话时长/成本趋势
-- 平台/终端类型分布
+远程模式、桌面模式、bare 模式、SSH socket 模式都会改变认证源选择。
 
 ---
 
@@ -945,23 +746,9 @@ cli.tsx (入口)
 
 ## 八、安全与隐私设计
 
-### 8.1 数据分类
+> 数据分类、PII 保护、隐私控制等详细内容已合并至 `DATA_COLLECTION_TRACKING_ANALYSIS.md` 第五～七章。
 
-| 级别 | 数据类型 | 处理方式 |
-|-----|---------|---------|
-| 公开 | 版本号、平台类型 | 直接记录 |
-| 低风险 | 包管理器列表、终端类型 | 直接记录 |
-| 中风险 | MCP 服务器名、仓库哈希 | 条件记录 |
-| 高风险 | 代码片段、文件路径、邮箱 | 脱敏/标记 |
-
-### 8.2 保护措施
-
-1. **编译时**: TypeScript 类型强制标记 PII
-2. **运行时**: 脱敏函数处理敏感数据
-3. **传输时**: `_PROTO_*` 字段隔离
-4. **存储时**: BigQuery 列级权限控制
-
-### 8.3 沙盒机制
+### 8.1 沙盒机制
 
 - 文件系统权限规则 (只读/读写限制)
 - Bash 命令分类器 (风险等级评估)
@@ -1090,6 +877,7 @@ const storedPath = await storeImage(pastedImage)
 | Messages / transcript / normalization / pairing | `MESSAGES_TRANSCRIPT_ANALYSIS.md` |
 | Permissions / allow-ask-deny / denial tracking | `PERMISSIONS_ARCHITECTURE_ANALYSIS.md` |
 | Settings / remote policy / managed config | `SETTINGS_AND_REMOTE_POLICY_ANALYSIS.md` |
+| **数据收集 / 追踪 / 隐私 / 端点 / 事件体系** | **`DATA_COLLECTION_TRACKING_ANALYSIS.md`** |
 | Telemetry / analytics / sinks / 1P logging | `TELEMETRY_ANALYTICS_ANALYSIS.md` |
 | Bridge / remote control / REPL bridge / transport | `BRIDGE_REMOTE_CONTROL_ANALYSIS.md` |
 | Plugins / skills / bundled/plugin/dynamic surface | `PLUGINS_AND_SKILLS_ANALYSIS.md` |
@@ -1124,13 +912,15 @@ const storedPath = await storeImage(pastedImage)
    - 看运行时拦截与扩展点
 11. `MEMORY_ARCHITECTURE_ANALYSIS.md`
    - 看长期上下文系统
-12. `TELEMETRY_ANALYTICS_ANALYSIS.md`
-   - 看观测与数据治理
-13. `BRIDGE_REMOTE_CONTROL_ANALYSIS.md`
+12. `DATA_COLLECTION_TRACKING_ANALYSIS.md`
+   - 看数据收集、追踪、隐私控制全貌
+13. `TELEMETRY_ANALYTICS_ANALYSIS.md`
+   - 看遥测管道内部实现细节
+14. `BRIDGE_REMOTE_CONTROL_ANALYSIS.md`
    - 看远程控制与桥接
-14. `PLUGINS_AND_SKILLS_ANALYSIS.md`
+15. `PLUGINS_AND_SKILLS_ANALYSIS.md`
    - 看技能与插件扩展平台
-15. `POLICY_LIMITS_ANALYSIS.md`
+16. `POLICY_LIMITS_ANALYSIS.md`
    - 看组织级能力 gating
 
 ### 12.2 继续深挖时仍值得追加的模块
