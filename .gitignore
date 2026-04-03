@@ -3,3 +3,6 @@ dist/
 .idea/
 node_modules/
 opencode/
+.ai-team/
+.obsidian/
+
