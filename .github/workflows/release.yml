@@ -25,7 +25,7 @@ jobs:
             platform: linux-arm64
           - os: macos-latest
             platform: darwin-arm64
-          - os: macos-13
+          - os: macos-15
             platform: darwin-x64
     runs-on: ${{ matrix.os }}
     outputs:
