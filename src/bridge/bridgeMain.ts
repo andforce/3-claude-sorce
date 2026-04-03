@@ -3,8 +3,6 @@ import { randomUUID } from 'crypto'
 import { hostname, tmpdir } from 'os'
 import { basename, join, resolve } from 'path'
 import { getRemoteSessionUrl } from '../constants/product.js'
-import { shutdownDatadog } from '../services/analytics/datadog.js'
-import { shutdown1PEventLogging } from '../services/analytics/firstPartyEventLogger.js'
 import { checkGate_CACHED_OR_BLOCKING } from '../services/analytics/growthbook.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2059,14 +2057,6 @@ export async function bridgeMain(args: string[]): Promise<void> {
       used_capacity: parsedCapacity !== undefined,
       used_create_session_in_dir: parsedCreateSessionInDir !== undefined,
     })
-    // logEventAsync only enqueues — process.exit() discards buffered events.
-    // Flush explicitly, capped at 500ms to match gracefulShutdown.ts.
-    // (sleep() doesn't unref its timer, but process.exit() follows immediately
-    // so the ref'd timer can't delay shutdown.)
-    await Promise.race([
-      Promise.all([shutdown1PEventLogging(), shutdownDatadog()]),
-      sleep(500, undefined, { unref: true }),
-    ]).catch(() => {})
     // biome-ignore lint/suspicious/noConsole: intentional error output
     console.error(
       'Error: Multi-session Remote Control is not enabled for your account yet.',
