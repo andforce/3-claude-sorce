@@ -167,6 +167,14 @@ const noopObj = () => ({});
 const noopArr = () => [];
 const noopStr = () => '';
 const noopUndef = () => undefined;
+const noopUnsub = () => {};
+const createSandboxViolationStore = () => ({
+  getViolations: noopArr,
+  getTotalCount: () => 0,
+  clearViolations: noop,
+  onViolation: noop,
+  subscribe: () => noopUnsub,
+});
 
 export const SandboxManager = {
   checkDependencies: () => ({ errors: [], warnings: [] }),
@@ -188,15 +196,17 @@ export const SandboxManager = {
   waitForNetworkInitialization: async () => false,
   wrapWithSandbox: async (cmd) => cmd,
   cleanupAfterCommand: noop,
-  getSandboxViolationStore: () => ({
-    getViolations: noopArr,
-    clearViolations: noop,
-    onViolation: noop,
-  }),
+  getSandboxViolationStore: createSandboxViolationStore,
   annotateStderrWithSandboxFailures: (cmd, stderr) => stderr,
 };
 export const SandboxRuntimeConfigSchema = {};
-export const SandboxViolationStore = class { getViolations() { return []; } clearViolations() {} onViolation() {} };
+export const SandboxViolationStore = class {
+  getViolations() { return []; }
+  getTotalCount() { return 0; }
+  clearViolations() {}
+  onViolation() {}
+  subscribe() { return noopUnsub; }
+};
 export default undefined;
 `,
             '@anthropic-ai/bedrock-sdk': `export const AnthropicBedrock = undefined; export default undefined;`,
