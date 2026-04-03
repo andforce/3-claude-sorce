@@ -27,11 +27,8 @@
 
 import type { Span } from '@opentelemetry/api'
 import { createHash } from 'crypto'
-import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
-import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { sanitizeToolNameForAnalytics } from '../../services/analytics/metadata.js'
 import type { AssistantMessage, UserMessage } from '../../types/message.js'
-import { isEnvTruthy } from '../envUtils.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
 import { logOTelEvent } from './events.js'
 
@@ -70,31 +67,10 @@ export function clearBetaTracingState(): void {
 const MAX_CONTENT_SIZE = 60 * 1024 // 60KB (Honeycomb limit is 64KB, staying safe)
 
 /**
- * Check if beta detailed tracing is enabled.
- * - Requires ENABLE_BETA_TRACING_DETAILED=1 and BETA_TRACING_ENDPOINT
- * - For external users, enabled in SDK/headless mode OR when org is
- *   allowlisted via the tengu_trace_lantern GrowthBook gate
+ * Beta detailed tracing — disabled in this build.
  */
 export function isBetaTracingEnabled(): boolean {
-  const baseEnabled =
-    isEnvTruthy(process.env.ENABLE_BETA_TRACING_DETAILED) &&
-    Boolean(process.env.BETA_TRACING_ENDPOINT)
-
-  if (!baseEnabled) {
-    return false
-  }
-
-  // For external users, enable in SDK/headless mode OR when org is allowlisted.
-  // Gate reads from disk cache, so first run after allowlisting returns false;
-  // works from second run onward (same behavior as enhanced_telemetry_beta).
-  if (process.env.USER_TYPE !== 'ant') {
-    return (
-      getIsNonInteractiveSession() ||
-      getFeatureValue_CACHED_MAY_BE_STALE('tengu_trace_lantern', false)
-    )
-  }
-
-  return true
+  return false
 }
 
 /**
