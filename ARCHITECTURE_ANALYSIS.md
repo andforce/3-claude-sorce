@@ -1077,28 +1077,83 @@ const storedPath = await storeImage(pastedImage)
 
 ---
 
-## 十二、建议你下一轮继续深挖的模块
+## 十二、扩展分析文档索引
 
-如果你要把这份文档继续升级成“架构审计级文档”，我建议下一轮再补下面几块：
+我已经把几个最关键、最值得单独阅读的子系统拆成独立文档：
 
-1. **`src/query.ts` 主循环**
-   - 真正的消息 → 模型 → tool use → tool result → 再入模型 的闭环
-   - 这里是整个 agent runtime 的心脏
+| 模块 | 文档 |
+|---|---|
+| 主循环 / tool loop / compact / retry | `QUERY_RUNTIME_ANALYSIS.md` |
+| REPL 交互编排 / fullscreen / permission / notifications | `REPL_ORCHESTRATION_ANALYSIS.md` |
+| MCP 配置 / approval / lifecycle / tools/resources 注入 | `MCP_ARCHITECTURE_ANALYSIS.md` |
+| Agent / Subagent / teammate / remote agent / worktree | `AGENT_RUNTIME_ANALYSIS.md` |
+| Messages / transcript / normalization / pairing | `MESSAGES_TRANSCRIPT_ANALYSIS.md` |
+| Permissions / allow-ask-deny / denial tracking | `PERMISSIONS_ARCHITECTURE_ANALYSIS.md` |
+| Settings / remote policy / managed config | `SETTINGS_AND_REMOTE_POLICY_ANALYSIS.md` |
+| Telemetry / analytics / sinks / 1P logging | `TELEMETRY_ANALYTICS_ANALYSIS.md` |
+| Bridge / remote control / REPL bridge / transport | `BRIDGE_REMOTE_CONTROL_ANALYSIS.md` |
+| Plugins / skills / bundled/plugin/dynamic surface | `PLUGINS_AND_SKILLS_ANALYSIS.md` |
+| API / provider / stream / retry / error mapping | `API_PROVIDER_ARCHITECTURE_ANALYSIS.md` |
+| Hooks / lifecycle / runtime interception | `HOOKS_LIFECYCLE_ANALYSIS.md` |
+| Memory / memdir / extraction / team memory | `MEMORY_ARCHITECTURE_ANALYSIS.md` |
+| Policy limits / org capability gating | `POLICY_LIMITS_ANALYSIS.md` |
 
-2. **`src/screens/REPL.tsx` 交互编排**
-   - 当前文档提到了 REPL，但还没把 prompt submit、message list、fullscreen、selection、permission dialog、notification orchestration 讲透
+### 12.1 建议阅读顺序
 
-3. **`src/services/mcp/`**
-   - 当前只写了高层架构，没拆开 client lifecycle、server approval、resource loading、registry、connector 故障恢复
+如果你要建立完整心智模型，建议按下面顺序读：
 
-4. **`src/tools/AgentTool/` 与 subagent runtime**
-   - 当前文档提到 Agent，但还没把 worktree isolation、background agent、teammate/in-process teammate 的差异拆透
+1. `ARCHITECTURE_ANALYSIS.md`
+   - 看整体版图
+2. `QUERY_RUNTIME_ANALYSIS.md`
+   - 看真正的 runtime heart
+3. `MESSAGES_TRANSCRIPT_ANALYSIS.md`
+   - 看 transcript correctness engine
+4. `REPL_ORCHESTRATION_ANALYSIS.md`
+   - 看终端交互层如何承载 runtime
+5. `API_PROVIDER_ARCHITECTURE_ANALYSIS.md`
+   - 看模型调用与 provider 抽象
+6. `PERMISSIONS_ARCHITECTURE_ANALYSIS.md`
+   - 看安全决策层
+7. `SETTINGS_AND_REMOTE_POLICY_ANALYSIS.md`
+   - 看配置与远程策略平面
+8. `MCP_ARCHITECTURE_ANALYSIS.md`
+   - 看扩展平台与外部能力注入
+9. `AGENT_RUNTIME_ANALYSIS.md`
+   - 看多代理 / 子代理执行系统
+10. `HOOKS_LIFECYCLE_ANALYSIS.md`
+   - 看运行时拦截与扩展点
+11. `MEMORY_ARCHITECTURE_ANALYSIS.md`
+   - 看长期上下文系统
+12. `TELEMETRY_ANALYTICS_ANALYSIS.md`
+   - 看观测与数据治理
+13. `BRIDGE_REMOTE_CONTROL_ANALYSIS.md`
+   - 看远程控制与桥接
+14. `PLUGINS_AND_SKILLS_ANALYSIS.md`
+   - 看技能与插件扩展平台
+15. `POLICY_LIMITS_ANALYSIS.md`
+   - 看组织级能力 gating
 
-5. **`src/utils/settings/` 与远程受管设置**
-   - 这里直接影响 bypass mode、auto mode、组织策略和 UI 行为
+### 12.2 继续深挖时仍值得追加的模块
 
-6. **`src/utils/permissions/`**
-   - 当前只写了门控流程，还没展开 denial tracking、规则来源、危险规则剥离、auto/ask/deny 的优先级
+在已经拆出的 10 份文档基础上，后面如果继续推进到“系统级审计文档”，最值得继续下钻的是：
+
+1. **`src/services/api/`**
+   - Anthropic API 调用、stream protocol、错误恢复、provider 差异
+
+2. **`src/utils/model/` + provider 体系**
+   - 模型选择、provider 路由、3P provider 适配
+
+3. **`src/hooks/` 生命周期体系**
+   - prompt submit hook、tool hook、stop hook 的全链路
+
+4. **`src/memdir/` / memory / team memory / extractMemories**
+   - 长期记忆、项目记忆、团队记忆同步
+
+5. **`src/services/policyLimits/`**
+   - org policy 与功能禁用/限制的运行时作用面
+
+6. **`src/ink/` 自定义终端渲染引擎**
+   - 如果要分析终端 UI 性能与渲染机制，这块值得单独成册
 
 ---
 
