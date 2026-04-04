@@ -42,6 +42,22 @@ export type TelegramUpdate = {
       is_bot?: boolean
     }
   }
+  callback_query?: {
+    id: string
+    data?: string
+    from?: {
+      id?: number
+      is_bot?: boolean
+    }
+    message?: {
+      message_id: number
+      chat?: {
+        id?: number
+        type?: string
+      }
+      text?: string
+    }
+  }
 }
 
 export type TelegramGetMeResponse = {
@@ -64,6 +80,47 @@ export type TelegramGetUpdatesResponse = {
 export type TelegramSendMessageResponse = {
   ok: boolean
   description?: string
+  result?: {
+    message_id: number
+  }
+}
+
+export type TelegramSetMyCommandsResponse = {
+  ok: boolean
+  description?: string
+}
+
+export type TelegramEditMessageResponse = {
+  ok: boolean
+  description?: string
+}
+
+export type TelegramAnswerCallbackQueryResponse = {
+  ok: boolean
+  description?: string
+}
+
+export type TelegramBotCommand = {
+  command: string
+  description: string
+}
+
+export type TelegramInlineKeyboardButton = {
+  text: string
+  callback_data: string
+}
+
+export type TelegramInlineKeyboardMarkup = {
+  inline_keyboard: TelegramInlineKeyboardButton[][]
+}
+
+export type TelegramCallbackEvent = {
+  kind: 'callback-query'
+  callbackQueryId: string
+  chatId: string
+  userId: string
+  messageId: number
+  data: string
 }
 
 export type TelegramConfigDraft = Partial<TelegramConfig>

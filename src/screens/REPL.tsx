@@ -4044,7 +4044,8 @@ export function REPL({
   });
   useTelegramBridge({
     messages,
-    isLoading
+    isLoading,
+    store
   });
 
   // Scheduled tasks from .claude/scheduled_tasks.json (CronCreate/Delete/List)
