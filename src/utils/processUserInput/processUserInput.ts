@@ -10,7 +10,6 @@ import { logEvent } from 'src/services/analytics/index.js'
 import { getContentText } from 'src/utils/messages.js'
 import {
   findCommand,
-  getCommandName,
   isBridgeSafeCommand,
   type LocalJSXCommandContext,
 } from '../../commands.js'
@@ -48,7 +47,6 @@ import {
 } from '../imageResizer.js'
 import { storeImages } from '../imageStore.js'
 import {
-  createCommandInputMessage,
   createSystemMessage,
   createUserMessage,
 } from '../messages.js'
@@ -422,34 +420,21 @@ async function processUserInputBase(
   // Bridge-safe slash command override: mobile/web clients set bridgeOrigin
   // with skipSlashCommands still true (defense-in-depth against exit words and
   // immediate-command fast paths). Resolve the command here — if it passes
-  // isBridgeSafeCommand, clear the skip so the gate below opens. If it's a
-  // known-but-unsafe command (local-jsx UI or terminal-only), short-circuit
-  // with a helpful message rather than letting the model see raw "/config".
+  // isBridgeSafeCommand, clear the skip so the gate below opens. Non-bridge-safe
+  // commands (local-jsx UI or terminal-only) are treated as plain text so
+  // Telegram/remote clients get a natural response instead of a hard error.
   let effectiveSkipSlash = skipSlashCommands
   if (bridgeOrigin && inputString !== null && inputString.startsWith('/')) {
     const parsed = parseSlashCommand(inputString)
     const cmd = parsed
       ? findCommand(parsed.commandName, context.options.commands)
       : undefined
-    if (cmd) {
-      if (isBridgeSafeCommand(cmd)) {
-        effectiveSkipSlash = false
-      } else {
-        const msg = `/${getCommandName(cmd)} isn't available over Remote Control.`
-        return {
-          messages: [
-            createUserMessage({ content: inputString, uuid }),
-            createCommandInputMessage(
-              `<local-command-stdout>${msg}</local-command-stdout>`,
-            ),
-          ],
-          shouldQuery: false,
-          resultText: msg,
-        }
-      }
+    if (cmd && isBridgeSafeCommand(cmd)) {
+      effectiveSkipSlash = false
     }
-    // Unknown /foo or unparseable — fall through to plain text, same as
-    // pre-#19134. A mobile user typing "/shrug" shouldn't see "Unknown skill".
+    // Unknown /foo, unparseable, or non-bridge-safe — fall through to plain text,
+    // same as pre-#19134. A mobile user typing "/shrug" or "/agents" shouldn't
+    // see "Unknown skill" or "isn't available over Remote Control".
   }
 
   // Ultraplan keyword — route through /ultraplan. Detect on the
