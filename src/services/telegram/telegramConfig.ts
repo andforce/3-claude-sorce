@@ -12,6 +12,14 @@ export function getTelegramConfig(): TelegramConfig | undefined {
   return getGlobalConfig().telegram
 }
 
+export function hasTelegramRuntimeConfig(): boolean {
+  const telegram = getTelegramConfig()
+  return Boolean(
+    telegram?.botToken?.trim() &&
+      (telegram.allowedUserIds?.filter(Boolean).length ?? 0) > 0,
+  )
+}
+
 export function saveTelegramConfig(updates: TelegramConfigDraft): void {
   saveGlobalConfig(current => ({
     ...current,
