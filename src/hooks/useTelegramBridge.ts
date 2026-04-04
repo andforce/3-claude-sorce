@@ -5,6 +5,7 @@ import {
   TELEGRAM_CHANNEL_SERVER,
   type TelegramInboundEvent,
 } from '../services/telegram/telegramTypes.js'
+import { hasTelegramRuntimeConfig } from '../services/telegram/telegramConfig.js'
 import {
   handleTelegramCallback,
   logTelegramInteractiveError,
@@ -35,6 +36,22 @@ export function useTelegramBridge({ messages, isLoading, store }: Props): void {
   const activeTurnRef = useRef<ActiveTelegramTurn | null>(null)
   const lastProcessedMessageCountRef = useRef(messages.length)
   const previousLoadingRef = useRef(isLoading)
+  const autoStartAttemptedRef = useRef(false)
+
+  useEffect(() => {
+    if (autoStartAttemptedRef.current) return
+    autoStartAttemptedRef.current = true
+    if (!hasTelegramRuntimeConfig()) return
+
+    void telegramService.startFromSavedConfig().catch(error => {
+      logForDebugging(
+        `[telegram] auto-start failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { level: 'error' },
+      )
+    })
+  }, [])
 
   useEffect(() => {
     return telegramService.subscribeToInbound(event => {
