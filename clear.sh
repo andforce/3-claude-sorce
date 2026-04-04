@@ -1,33 +1,114 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "清理 Claude 应用及相关缓存/配置（危险操作，执行前请确认）"
+echo "清理 Claude 应用、相关缓存/配置，以及 macOS Keychain 中的登录信息（危险操作，执行前请确认）"
 
 HOME_DIR="${HOME:-$PWD}"
+CURRENT_USER="${USER:-$(id -un)}"
+DEFAULT_CONFIG_HOME="${HOME_DIR}/.claude"
+CONFIG_HOME="${CLAUDE_CONFIG_DIR:-${DEFAULT_CONFIG_HOME}}"
+TMP_BASE="${TMPDIR:-/tmp}"
+TMP_BASE="${TMP_BASE%/}"
+
+oauth_suffixes=("" "-staging-oauth" "-local-oauth" "-custom-oauth")
+service_suffixes=("" "-credentials")
+
+sha256_short() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print substr($1, 1, 8)}'
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$1" | openssl dgst -sha256 | awk '{print substr($NF, 1, 8)}'
+    return
+  fi
+
+  return 1
+}
 
 # 固定要清理的路径（有的可能不存在）
 paths=(
   "/Applications/Claude.app"
-  "$HOME_DIR/.claude"
-  "$HOME_DIR/.claude.json"
+  "${DEFAULT_CONFIG_HOME}"
   "$HOME_DIR/Library/Application Support/Claude"
   "$HOME_DIR/Library/Caches/com.anthropic.claude"
   "$HOME_DIR/Library/Caches/Claude"
+  "$HOME_DIR/Library/Application Support/claude-cli-nodejs"
+  "$HOME_DIR/Library/Preferences/claude-cli-nodejs"
+  "$HOME_DIR/Library/Caches/claude-cli-nodejs"
+  "$HOME_DIR/Library/Logs/claude-cli-nodejs"
   "$HOME_DIR/Library/Saved Application State/com.anthropic.claude.savedState"
   "$HOME_DIR/Library/Preferences/com.anthropic.claude.plist"
   "$HOME_DIR/Library/Logs/Claude"
+  "${TMP_BASE}/claude-cli-nodejs"
 )
 
-# 查找 $HOME 下以 .claude.json.backup 开头的所有文件
-backup_files=()
-if [[ -d "$HOME_DIR" ]]; then
-  while IFS= read -r -d '' f; do
-    backup_files+=( "$f" )
-  done < <(find "$HOME_DIR" -maxdepth 1 -type f -name '.claude.json.backup*' -print0 2>/dev/null || true)
+# 如果使用了自定义 CLAUDE_CONFIG_DIR，也一并清理对应目录
+if [[ "${CONFIG_HOME}" != "${DEFAULT_CONFIG_HOME}" ]]; then
+  paths+=( "${CONFIG_HOME}" )
 fi
+
+# 全局配置文件会随 OAuth 环境切换产生不同后缀
+config_roots=( "${HOME_DIR}" )
+if [[ "${CONFIG_HOME}" != "${HOME_DIR}" ]]; then
+  config_roots+=( "${CONFIG_HOME}" )
+fi
+
+for root in "${config_roots[@]}"; do
+  for oauth_suffix in "${oauth_suffixes[@]}"; do
+    paths+=( "${root}/.claude${oauth_suffix}.json" )
+  done
+done
+
+# 兼容旧版全局配置文件
+paths+=( "${CONFIG_HOME}/.config.json" )
+
+# 查找各配置根目录下的配置备份文件
+backup_files=()
+backup_search_roots=( "${HOME_DIR}" )
+if [[ "${CONFIG_HOME}" != "${HOME_DIR}" ]]; then
+  backup_search_roots+=( "${CONFIG_HOME}" )
+fi
+
+backup_patterns=(".config.json.backup*")
+for oauth_suffix in "${oauth_suffixes[@]}"; do
+  backup_patterns+=( ".claude${oauth_suffix}.json.backup*" )
+done
+
+for search_root in "${backup_search_roots[@]}"; do
+  [[ -d "${search_root}" ]] || continue
+  for pattern in "${backup_patterns[@]}"; do
+    while IFS= read -r -d '' f; do
+      backup_files+=( "$f" )
+    done < <(find "${search_root}" -maxdepth 1 -type f -name "${pattern}" -print0 2>/dev/null || true)
+  done
+done
 
 if ((${#backup_files[@]} > 0)); then
   paths+=( "${backup_files[@]}" )
+fi
+
+# Keychain 中 Claude Code 相关的服务名。
+# macOS 默认 OAuth 凭据保存在 "Claude Code-credentials"。
+keychain_services=()
+
+for oauth_suffix in "${oauth_suffixes[@]}"; do
+  for service_suffix in "${service_suffixes[@]}"; do
+    keychain_services+=( "Claude Code${oauth_suffix}${service_suffix}" )
+  done
+done
+
+if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+  if dir_hash="$(sha256_short "${CLAUDE_CONFIG_DIR}")"; then
+    for oauth_suffix in "${oauth_suffixes[@]}"; do
+      for service_suffix in "${service_suffixes[@]}"; do
+        keychain_services+=( "Claude Code${oauth_suffix}${service_suffix}-${dir_hash}" )
+      done
+    done
+  else
+    echo "警告：无法计算 CLAUDE_CONFIG_DIR 对应的 Keychain hash，将只清理默认服务名。"
+  fi
 fi
 
 # 去重
@@ -39,9 +120,23 @@ done < <(printf '%s\n' "${paths[@]}" | sort -u)
 
 paths=( "${paths_uniq[@]}" )
 
+keychain_services_uniq=()
+while IFS= read -r service; do
+  [[ -z "$service" ]] && continue
+  keychain_services_uniq+=( "$service" )
+done < <(printf '%s\n' "${keychain_services[@]}" | sort -u)
+
+keychain_services=( "${keychain_services_uniq[@]}" )
+
 echo "将删除以下路径（若存在）："
 for p in "${paths[@]}"; do
   echo "  $p"
+done
+
+echo
+echo "将删除以下 Keychain 条目（若存在，用户：${CURRENT_USER}）："
+for service in "${keychain_services[@]}"; do
+  echo "  $service"
 done
 
 if ((${#backup_files[@]} == 0)); then
@@ -67,6 +162,20 @@ for p in "${paths[@]}"; do
     fi
   else
     echo "不存在：$p"
+  fi
+done
+
+echo
+echo "开始清理 Keychain 登录信息..."
+
+for service in "${keychain_services[@]}"; do
+  if security find-generic-password -a "${CURRENT_USER}" -s "${service}" >/dev/null 2>&1; then
+    echo "删除 Keychain 项：${service}"
+    if ! security delete-generic-password -a "${CURRENT_USER}" -s "${service}" >/dev/null 2>&1; then
+      echo "删除失败：${service}"
+    fi
+  else
+    echo "Keychain 不存在：${service}"
   fi
 done
 

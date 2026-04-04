@@ -21,11 +21,6 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 
 const PROVIDERS: OptionWithDescription<string>[] = [
   {
-    value: 'kimi-for-coding',
-    label: 'Kimi For Coding',
-    hint: 'Moonshot AI\'s coding-optimized model',
-  },
-  {
     value: 'github-copilot',
     label: 'GitHub Copilot',
     hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',

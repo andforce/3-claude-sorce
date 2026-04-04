@@ -33,9 +33,6 @@ type OAuthStatus = {
   state: 'platform_setup';
 } // Show platform setup info (Bedrock/Vertex/Foundry)
 | {
-  state: 'kimi_setup';
-} // Show Kimi Code API key setup
-| {
   state: 'copilot_polling';
   userCode: string;
   verificationUri: string;
@@ -665,9 +662,6 @@ function OAuthStatusMessage(t0) {
         let t6;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
           t6 = [{
-            label: <Text>Kimi For Coding ·{" "}<Text dimColor={true}>Moonshot AI coding model</Text>{"\n"}</Text>,
-            value: "kimi_code"
-          }, {
             label: <Text>GitHub Copilot ·{" "}<Text dimColor={true}>device code OAuth</Text>{"\n"}</Text>,
             value: "github_copilot"
           }, {
@@ -694,12 +688,6 @@ function OAuthStatusMessage(t0) {
                 logEvent("tengu_oauth_platform_selected", {});
                 setOAuthStatus({
                   state: "platform_setup"
-                });
-              } else if (value_0 === "kimi_code") {
-                logEvent("tengu_oauth_kimi_selected", {});
-                setPastedCode("");
-                setOAuthStatus({
-                  state: "kimi_setup"
                 });
               } else if (value_0 === "github_copilot") {
                 logEvent("tengu_oauth_github_copilot_selected", {});
@@ -846,62 +834,6 @@ function OAuthStatusMessage(t0) {
           t8 = $[19];
         }
         return t8;
-      }
-    case "kimi_setup":
-      {
-        return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>Kimi For Coding Setup</Text>
-            <Box flexDirection="column" gap={1}>
-              <Text>Enter your Kimi For Coding API Key.</Text>
-              <Text>Get it from:{" "}
-                <Link url="https://www.kimi.com/code/console">https://www.kimi.com/code/console</Link>
-                {" "}→ API keys
-              </Text>
-              <Box marginTop={1} flexDirection="column">
-                <Text>API Key: </Text>
-                <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
-                  if (!value_0.trim()) {
-                    setPastedCode("");
-                    setOAuthStatus({
-                      state: "idle"
-                    });
-                    return;
-                  }
-                  const apiKey = value_0.trim();
-                  saveGlobalConfig(current => ({
-                    ...current,
-                    connectedProviders: {
-                      ...(current.connectedProviders || {}),
-                      'kimi-for-coding': {
-                        apiKey,
-                        connectedAt: new Date().toISOString(),
-                      },
-                    },
-                    activeProvider: 'kimi-for-coding',
-                  }));
-                  fetch('https://api.kimi.com/coding/v1/models', {
-                    headers: { 'Authorization': `Bearer ${apiKey}` },
-                    signal: AbortSignal.timeout(8000),
-                  }).then(r => r.ok ? r.json() : null).then(data => {
-                    if (data?.data && Array.isArray(data.data)) {
-                      saveGlobalConfig(current => ({
-                        ...current,
-                        kimiModelsCache: data.data.map((m: { id: string; owned_by?: string }) => ({
-                          id: m.id,
-                          owned_by: m.owned_by,
-                        })),
-                      }));
-                    }
-                  }).catch(() => {});
-                  setPastedCode("");
-                  setOAuthStatus({
-                    state: "success"
-                  });
-                }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} mask="*" />
-              </Box>
-              <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
-            </Box>
-          </Box>;
       }
     case "copilot_polling":
       {
