@@ -1,22 +1,31 @@
 import { logForDebugging } from '../../utils/debug.js'
 import { getTelegramRuntimeConfig } from './telegramConfig.js'
 import type {
+  TelegramAnswerCallbackQueryResponse,
+  TelegramBotCommand,
+  TelegramCallbackEvent,
+  TelegramEditMessageResponse,
   TelegramGetMeResponse,
   TelegramGetUpdatesResponse,
   TelegramInboundEvent,
+  TelegramInlineKeyboardMarkup,
   TelegramRuntimeConfig,
   TelegramSendMessageResponse,
+  TelegramSetMyCommandsResponse,
   TelegramServiceState,
   TelegramUpdate,
 } from './telegramTypes.js'
 
 type Listener = () => void
 type InboundListener = (event: TelegramInboundEvent) => void
+type CallbackListener = (event: TelegramCallbackEvent) => void
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 const MAX_TELEGRAM_MESSAGE_LENGTH = 4000
 const POLL_TIMEOUT_SECONDS = 25
 const RETRY_DELAY_MS = 3000
+const MAX_TELEGRAM_MENU_COMMANDS = 100
+const TELEGRAM_COMMAND_NAME_RE = /^[a-z0-9_]{1,32}$/
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -49,9 +58,39 @@ function hasSameConfig(
   )
 }
 
+function normalizeCommandDescription(description: string): string {
+  return description.replace(/\s+/g, ' ').trim().slice(0, 256)
+}
+
+async function getTelegramMenuCommands(): Promise<TelegramBotCommand[]> {
+  const { getCommands, getCommandName } = await import('../../commands.js')
+  const commands = await getCommands(process.cwd())
+  const results: TelegramBotCommand[] = []
+  const seen = new Set<string>()
+
+  for (const command of commands) {
+    const candidates = [getCommandName(command), ...(command.aliases ?? [])]
+    const name = candidates.find(candidate => TELEGRAM_COMMAND_NAME_RE.test(candidate))
+    if (!name || seen.has(name)) continue
+
+    results.push({
+      command: name,
+      description: normalizeCommandDescription(command.description),
+    })
+    seen.add(name)
+
+    if (results.length >= MAX_TELEGRAM_MENU_COMMANDS) {
+      break
+    }
+  }
+
+  return results
+}
+
 class TelegramService {
   private listeners = new Set<Listener>()
   private inboundListeners = new Set<InboundListener>()
+  private callbackListeners = new Set<CallbackListener>()
   private state: TelegramServiceState = { status: 'stopped' }
   private config?: TelegramRuntimeConfig
   private abortController: AbortController | null = null
@@ -69,6 +108,13 @@ class TelegramService {
     this.inboundListeners.add(listener)
     return () => {
       this.inboundListeners.delete(listener)
+    }
+  }
+
+  subscribeToCallbacks = (listener: CallbackListener): (() => void) => {
+    this.callbackListeners.add(listener)
+    return () => {
+      this.callbackListeners.delete(listener)
     }
   }
 
@@ -104,6 +150,20 @@ class TelegramService {
         {},
         abortController.signal,
       )
+
+      if (runId !== this.runId || abortController.signal.aborted) return
+
+      try {
+        await this.refreshTelegramMenu(config, abortController.signal)
+      } catch (error) {
+        if (!abortController.signal.aborted && runId === this.runId) {
+          const message = normalizeTelegramError(error)
+          logForDebugging(`[telegram] failed to refresh menu: ${message}`, {
+            level: 'error',
+          })
+          this.patchState({ lastError: message })
+        }
+      }
 
       if (runId !== this.runId || abortController.signal.aborted) return
 
@@ -155,21 +215,69 @@ class TelegramService {
     }
   }
 
-  async sendMessage(chatId: string, text: string): Promise<void> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+  ): Promise<number | undefined> {
     if (!this.config) {
       throw new Error('Telegram service is not running')
     }
 
+    let lastMessageId: number | undefined
     for (const chunk of chunkTelegramMessage(text)) {
-      await this.callTelegram<TelegramSendMessageResponse>(
+      const response = await this.callTelegram<TelegramSendMessageResponse>(
         this.config,
         'sendMessage',
         {
           chat_id: Number(chatId),
           text: chunk,
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         },
       )
+      lastMessageId = response.result?.message_id
     }
+    return lastMessageId
+  }
+
+  async editMessage(
+    chatId: string,
+    messageId: number,
+    text: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
+  ): Promise<void> {
+    if (!this.config) {
+      throw new Error('Telegram service is not running')
+    }
+
+    await this.callTelegram<TelegramEditMessageResponse>(
+      this.config,
+      'editMessageText',
+      {
+        chat_id: Number(chatId),
+        message_id: messageId,
+        text,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      },
+    )
+  }
+
+  async answerCallbackQuery(
+    callbackQueryId: string,
+    text?: string,
+  ): Promise<void> {
+    if (!this.config) {
+      throw new Error('Telegram service is not running')
+    }
+
+    await this.callTelegram<TelegramAnswerCallbackQueryResponse>(
+      this.config,
+      'answerCallbackQuery',
+      {
+        callback_query_id: callbackQueryId,
+        ...(text ? { text } : {}),
+      },
+    )
   }
 
   private setState(nextState: TelegramServiceState): void {
@@ -192,6 +300,12 @@ class TelegramService {
     }
   }
 
+  private emitCallback(event: TelegramCallbackEvent): void {
+    for (const listener of this.callbackListeners) {
+      listener(event)
+    }
+  }
+
   private async pollLoop(
     runId: number,
     config: TelegramRuntimeConfig,
@@ -205,7 +319,7 @@ class TelegramService {
           {
             offset: this.nextUpdateOffset,
             timeout: POLL_TIMEOUT_SECONDS,
-            allowed_updates: ['message'],
+            allowed_updates: ['message', 'callback_query'],
           },
           signal,
         )
@@ -232,6 +346,24 @@ class TelegramService {
     }
   }
 
+  private async refreshTelegramMenu(
+    config: TelegramRuntimeConfig,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const commands = await getTelegramMenuCommands()
+
+    await this.callTelegram<TelegramSetMyCommandsResponse>(
+      config,
+      'setMyCommands',
+      {
+        commands,
+      },
+      signal,
+    )
+
+    logForDebugging(`[telegram] refreshed menu commands: ${commands.length}`)
+  }
+
   private handleUpdate(
     update: TelegramUpdate,
     config: TelegramRuntimeConfig,
@@ -239,6 +371,33 @@ class TelegramService {
     this.nextUpdateOffset = update.update_id + 1
 
     const message = update.message
+    const callbackQuery = update.callback_query
+
+    if (callbackQuery?.data) {
+      const chatId = callbackQuery.message?.chat?.id
+      const userId = callbackQuery.from?.id
+      const messageId = callbackQuery.message?.message_id
+      if (
+        chatId !== undefined &&
+        userId !== undefined &&
+        messageId !== undefined &&
+        !callbackQuery.from?.is_bot
+      ) {
+        if (!config.allowedUserIds.includes(String(userId))) {
+          return
+        }
+        this.emitCallback({
+          kind: 'callback-query',
+          callbackQueryId: callbackQuery.id,
+          chatId: String(chatId),
+          userId: String(userId),
+          messageId,
+          data: callbackQuery.data,
+        })
+      }
+      return
+    }
+
     const chatId = message?.chat?.id
     const userId = message?.from?.id
 
