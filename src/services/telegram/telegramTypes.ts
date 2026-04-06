@@ -85,6 +85,25 @@ export type TelegramSendMessageResponse = {
   }
 }
 
+export type TelegramChatAction =
+  | 'typing'
+  | 'upload_photo'
+  | 'record_video'
+  | 'upload_video'
+  | 'record_voice'
+  | 'upload_voice'
+  | 'upload_document'
+  | 'choose_sticker'
+  | 'find_location'
+  | 'record_video_note'
+  | 'upload_video_note'
+
+export type TelegramSendChatActionResponse = {
+  ok: boolean
+  description?: string
+  result?: boolean
+}
+
 export type TelegramSetMyCommandsResponse = {
   ok: boolean
   description?: string
