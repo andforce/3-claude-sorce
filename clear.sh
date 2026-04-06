@@ -1,7 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "清理 Claude 应用、相关缓存/配置，以及 macOS Keychain 中的登录信息（危险操作，执行前请确认）"
+AUTO_YES=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y)
+      AUTO_YES=true
+      ;;
+    -h|--help)
+      echo "用法: $0 [--yes|-y]"
+      echo "  --yes      跳过交互确认，直接执行"
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $arg" >&2
+      echo "用法: $0 [--yes|-y]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+echo "清理 Claude 应用、CLI 配置/缓存、native installer 版本文件、npm 残留，以及 macOS Keychain 登录信息（危险操作）"
 
 HOME_DIR="${HOME:-$PWD}"
 CURRENT_USER="${USER:-$(id -un)}"
@@ -9,6 +29,10 @@ DEFAULT_CONFIG_HOME="${HOME_DIR}/.claude"
 CONFIG_HOME="${CLAUDE_CONFIG_DIR:-${DEFAULT_CONFIG_HOME}}"
 TMP_BASE="${TMPDIR:-/tmp}"
 TMP_BASE="${TMP_BASE%/}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME_DIR}/.local/share}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-${HOME_DIR}/.cache}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-${HOME_DIR}/.local/state}"
+USER_BIN_DIR="${HOME_DIR}/.local/bin"
 
 oauth_suffixes=("" "-staging-oauth" "-local-oauth" "-custom-oauth")
 service_suffixes=("" "-credentials")
@@ -27,6 +51,52 @@ sha256_short() {
   return 1
 }
 
+needs_sudo_for_path() {
+  local p="$1"
+  [[ "$p" == /Applications/* ]] || [[ "$p" == /Library/* ]] || [[ "$p" == /usr/local/* ]] || [[ "$p" == /opt/homebrew/* ]]
+}
+
+remove_path() {
+  local p="$1"
+  if [[ ! -e "$p" ]]; then
+    echo "不存在：$p"
+    return
+  fi
+
+  if needs_sudo_for_path "$p"; then
+    echo "删除（需要 sudo）：$p"
+    sudo rm -rf "$p"
+  else
+    echo "删除：$p"
+    rm -rf "$p"
+  fi
+}
+
+cleanup_shell_alias_in_file() {
+  local file="$1"
+  local temp_file="$2"
+  local removed=false
+
+  [[ -f "$file" ]] || return 0
+
+  : > "$temp_file"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+claude[[:space:]]*= ]] &&
+       [[ "$line" == *"${HOME_DIR}/.claude/local/claude"* || "$line" == *"~/.claude/local/claude"* ]]; then
+      removed=true
+      continue
+    fi
+    printf '%s\n' "$line" >> "$temp_file"
+  done < "$file"
+
+  if [[ "$removed" == true ]]; then
+    mv "$temp_file" "$file"
+    echo "已清理 shell alias：$file"
+  fi
+
+  [[ -f "$temp_file" ]] && rm -f "$temp_file"
+}
+
 # 固定要清理的路径（有的可能不存在）
 paths=(
   "/Applications/Claude.app"
@@ -42,6 +112,12 @@ paths=(
   "$HOME_DIR/Library/Preferences/com.anthropic.claude.plist"
   "$HOME_DIR/Library/Logs/Claude"
   "${TMP_BASE}/claude-cli-nodejs"
+  "${USER_BIN_DIR}/claude"
+  "${XDG_DATA_HOME}/claude"
+  "${XDG_CACHE_HOME}/claude"
+  "${XDG_STATE_HOME}/claude"
+  "/usr/local/bin/claude"
+  "/opt/homebrew/bin/claude"
 )
 
 # 如果使用了自定义 CLAUDE_CONFIG_DIR，也一并清理对应目录
@@ -89,6 +165,20 @@ if ((${#backup_files[@]} > 0)); then
   paths+=( "${backup_files[@]}" )
 fi
 
+# npm 全局安装残留（可能需要 sudo）
+if command -v npm >/dev/null 2>&1; then
+  if npm_prefix="$(npm config get prefix 2>/dev/null)"; then
+    npm_prefix="${npm_prefix%/}"
+    if [[ -n "$npm_prefix" ]]; then
+      paths+=( "${npm_prefix}/bin/claude" )
+      paths+=( "${npm_prefix}/lib/node_modules/@anthropic-ai/claude-code" )
+      paths+=( "${npm_prefix}/lib/node_modules/@anthropic-ai/Codex" )
+      paths+=( "${npm_prefix}/node_modules/@anthropic-ai/claude-code" )
+      paths+=( "${npm_prefix}/node_modules/@anthropic-ai/Codex" )
+    fi
+  fi
+fi
+
 # Keychain 中 Claude Code 相关的服务名。
 # macOS 默认 OAuth 凭据保存在 "Claude Code-credentials"。
 keychain_services=()
@@ -117,7 +207,6 @@ while IFS= read -r p; do
   [[ -z "$p" ]] && continue
   paths_uniq+=( "$p" )
 done < <(printf '%s\n' "${paths[@]}" | sort -u)
-
 paths=( "${paths_uniq[@]}" )
 
 keychain_services_uniq=()
@@ -125,12 +214,23 @@ while IFS= read -r service; do
   [[ -z "$service" ]] && continue
   keychain_services_uniq+=( "$service" )
 done < <(printf '%s\n' "${keychain_services[@]}" | sort -u)
-
 keychain_services=( "${keychain_services_uniq[@]}" )
+
+shell_config_files=(
+  "${ZDOTDIR:-${HOME_DIR}}/.zshrc"
+  "${HOME_DIR}/.bashrc"
+  "${HOME_DIR}/.config/fish/config.fish"
+)
 
 echo "将删除以下路径（若存在）："
 for p in "${paths[@]}"; do
   echo "  $p"
+done
+
+echo
+echo "将清理以下 shell 配置中的安装器 alias（若存在）："
+for shell_file in "${shell_config_files[@]}"; do
+  echo "  $shell_file"
 done
 
 echo
@@ -140,29 +240,27 @@ for service in "${keychain_services[@]}"; do
 done
 
 if ((${#backup_files[@]} == 0)); then
-  echo "未发现以 .claude.json.backup 开头的备份文件。"
+  echo "未发现配置备份文件（*.backup*）。"
 fi
 
-read -r -p "输入 YES 并回车以继续删除（其他任意内容为取消）: " confirm < /dev/tty
-if [[ "$confirm" != "YES" ]]; then
-  echo "已取消，不执行任何删除操作。"
-  exit 0
+if [[ "$AUTO_YES" == false ]]; then
+  read -r -p "输入 YES 并回车以继续删除（其他任意内容为取消）: " confirm < /dev/tty
+  if [[ "$confirm" != "YES" ]]; then
+    echo "已取消，不执行任何删除操作。"
+    exit 0
+  fi
 fi
 
-echo "开始删除..."
+echo "开始处理..."
 
 for p in "${paths[@]}"; do
-  if [[ -e "$p" ]]; then
-    if [[ "$p" == "/Applications/Claude.app" ]]; then
-      echo "删除（需要 sudo）：$p"
-      sudo rm -rf "$p"
-    else
-      echo "删除：$p"
-      rm -rf "$p"
-    fi
-  else
-    echo "不存在：$p"
-  fi
+  remove_path "$p"
+done
+
+echo
+echo "开始清理 shell alias..."
+for shell_file in "${shell_config_files[@]}"; do
+  cleanup_shell_alias_in_file "$shell_file" "${TMP_BASE}/claude-clear-alias.$$.$(basename "$shell_file").tmp"
 done
 
 echo
