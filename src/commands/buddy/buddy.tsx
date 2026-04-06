@@ -99,10 +99,47 @@ function BuddyView({ companion, onDone }: BuddyViewProps) {
 
 export async function call(
   onDone: LocalJSXCommandOnDone,
-  context: LocalJSXCommandContext,
+  _context: LocalJSXCommandContext,
+  args: string,
 ): Promise<React.ReactNode> {
+  const arg = args.trim().toLowerCase()
+
+  if (arg && arg !== 'off') {
+    onDone('Usage: /buddy [off]', { display: 'system' })
+    return null
+  }
+
   // Try to get existing companion
   let companion = getCompanion()
+  const { companionMuted } = getGlobalConfig()
+
+  if (arg === 'off') {
+    if (!companion) {
+      onDone('No buddy to hide yet. Run `/buddy` first.', { display: 'system' })
+      return null
+    }
+
+    if (companionMuted) {
+      onDone('Buddy is already hidden.', { display: 'system' })
+      return null
+    }
+
+    saveGlobalConfig(current => ({
+      ...current,
+      companionMuted: true,
+    }))
+    onDone('Buddy hidden. Run `/buddy` again to show it.', {
+      display: 'system',
+    })
+    return null
+  }
+
+  if (companionMuted) {
+    saveGlobalConfig(current => ({
+      ...current,
+      companionMuted: false,
+    }))
+  }
 
   // If no companion exists, create one
   if (!companion) {
@@ -147,7 +184,8 @@ export async function call(
         name: newCompanion.name,
         personality: newCompanion.personality,
         hatchedAt: newCompanion.hatchedAt,
-      }
+      },
+      companionMuted: false,
     }))
 
     companion = newCompanion
