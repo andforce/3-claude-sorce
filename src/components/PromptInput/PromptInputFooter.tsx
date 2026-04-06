@@ -166,7 +166,7 @@ function TelegramStatusIndicator(): React.ReactNode {
   }
 
   return <Text color={state.status === 'running' ? 'notice' : 'warning'}>
-      ✈
+      Telegram
     </Text>;
 }
 
