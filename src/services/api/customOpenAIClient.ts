@@ -1,3 +1,4 @@
+import { hasConnectedProviderCredentials } from '../../utils/connectedProviders.js'
 import { getGlobalConfig, type ConnectedProviderInfo } from '../../utils/config.js'
 import {
   convertAnthropicMessagesToOpenAI,
@@ -27,7 +28,10 @@ export function getCustomOpenAIProvider(): ConnectedProviderInfo | undefined {
 
 export function isCustomOpenAIConnected(): boolean {
   const c = getGlobalConfig()
-  return c.activeProvider === 'custom-openai' && !!c.connectedProviders?.['custom-openai']?.baseUrl
+  return (
+    c.activeProvider === 'custom-openai' &&
+    hasConnectedProviderCredentials('custom-openai', c)
+  )
 }
 
 function normalizeBaseUrl(url: string): string {

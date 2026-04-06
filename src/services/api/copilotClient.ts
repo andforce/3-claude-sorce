@@ -1,3 +1,4 @@
+import { hasConnectedProviderCredentials } from '../../utils/connectedProviders.js'
 import { getGlobalConfig, saveGlobalConfig, type ConnectedProviderInfo } from '../../utils/config.js'
 
 const COPILOT_API_BASE = 'https://api.githubcopilot.com'
@@ -35,7 +36,7 @@ export function getCopilotProvider(): ConnectedProviderInfo | undefined {
 }
 
 export function isCopilotConnected(): boolean {
-  return !!getCopilotProvider()?.oauthToken
+  return hasConnectedProviderCredentials('github-copilot')
 }
 
 const FALLBACK_COPILOT_MODELS: CopilotModelInfo[] = [

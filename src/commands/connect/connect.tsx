@@ -6,7 +6,6 @@ import type { LocalJSXCommandOnDone } from '../../types/command.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { saveGlobalConfig, getGlobalConfig } from '../../utils/config.js'
 import { Select, OptionWithDescription } from '../../components/CustomSelect/index.js'
-import { useAppState, useSetAppState } from '../../state/AppState.js'
 import { fetchCopilotModels } from '../../services/api/copilotClient.js'
 import {
   fetchOpenAICompatibleModelIds,
@@ -543,11 +542,12 @@ function OptionalMaskedKeyInput({
 
 function ConnectDialog({
   onDone,
+  onChangeAPIKey,
 }: {
   onDone: LocalJSXCommandOnDone
+  onChangeAPIKey: () => void
 }) {
   const [step, setStep] = React.useState<ConnectStep>({ type: 'select-provider' })
-  const setAppState = useSetAppState()
 
   const handleProviderSelect = async (providerId: string) => {
     if (providerId === 'github-copilot') {
@@ -631,6 +631,7 @@ function ConnectDialog({
         activeProvider: current.activeProvider || providerId,
       }))
 
+      onChangeAPIKey()
       setStep({ type: 'success', providerId })
     } catch (error) {
       setStep({
@@ -654,6 +655,7 @@ function ConnectDialog({
         activeProvider: current.activeProvider || 'github-copilot',
       }))
 
+      onChangeAPIKey()
       // Pre-fetch and cache the model list in background
       fetchCopilotModels().then(models => {
         saveGlobalConfig(current => ({
@@ -912,6 +914,7 @@ function ConnectDialog({
                   activeProvider: 'custom-openai',
                   openaiCustomModelsCache: st.models.map(id => ({ id })),
                 }))
+                onChangeAPIKey()
                 setStep({ type: 'success', providerId: 'custom-openai' })
               }}
               onCancel={handleCancel}
@@ -998,6 +1001,7 @@ function ConnectDialog({
                   activeProvider: 'custom-anthropic',
                   anthropicCustomModelsCache: st.models.map(id => ({ id })),
                 }))
+                onChangeAPIKey()
                 setStep({ type: 'success', providerId: 'custom-anthropic' })
               }}
               onCancel={handleCancel}
@@ -1051,7 +1055,12 @@ export async function call(
   onDone: LocalJSXCommandOnDone,
   context: LocalJSXCommandContext,
 ): Promise<React.ReactNode> {
-  return <ConnectDialog onDone={onDone} />
+  return (
+    <ConnectDialog
+      onDone={onDone}
+      onChangeAPIKey={context.onChangeAPIKey}
+    />
+  )
 }
 
 export default call
