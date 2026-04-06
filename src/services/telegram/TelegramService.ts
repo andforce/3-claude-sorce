@@ -3,8 +3,10 @@ import { getTelegramRuntimeConfig } from './telegramConfig.js'
 import type {
   TelegramAnswerCallbackQueryResponse,
   TelegramBotCommand,
+  TelegramBotCommandScope,
   TelegramCallbackEvent,
   TelegramChatAction,
+  TelegramDeleteMyCommandsResponse,
   TelegramEditMessageResponse,
   TelegramGetMeResponse,
   TelegramGetUpdatesResponse,
@@ -28,6 +30,10 @@ const POLL_TIMEOUT_SECONDS = 25
 const RETRY_DELAY_MS = 3000
 const MAX_TELEGRAM_MENU_COMMANDS = 100
 const TELEGRAM_COMMAND_NAME_RE = /^[a-z0-9_]{1,32}$/
+const TELEGRAM_MENU_SCOPES: TelegramBotCommandScope[] = [
+  { type: 'default' },
+  { type: 'all_private_chats' },
+]
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -155,15 +161,19 @@ class TelegramService {
 
       if (runId !== this.runId || abortController.signal.aborted) return
 
+      let menuRefreshError: string | undefined
       try {
         await this.refreshTelegramMenu(config, abortController.signal)
       } catch (error) {
         if (!abortController.signal.aborted && runId === this.runId) {
-          const message = normalizeTelegramError(error)
-          logForDebugging(`[telegram] failed to refresh menu: ${message}`, {
-            level: 'error',
-          })
-          this.patchState({ lastError: message })
+          menuRefreshError = normalizeTelegramError(error)
+          logForDebugging(
+            `[telegram] failed to refresh menu: ${menuRefreshError}`,
+            {
+              level: 'error',
+            },
+          )
+          this.patchState({ lastError: menuRefreshError })
         }
       }
 
@@ -174,7 +184,7 @@ class TelegramService {
         botUsername: response.result?.username,
         botDisplayName: response.result?.first_name,
         startedAt: new Date().toISOString(),
-        lastError: undefined,
+        lastError: menuRefreshError,
       })
 
       logForDebugging(
@@ -372,16 +382,30 @@ class TelegramService {
   ): Promise<void> {
     const commands = await getTelegramMenuCommands()
 
-    await this.callTelegram<TelegramSetMyCommandsResponse>(
-      config,
-      'setMyCommands',
-      {
-        commands,
-      },
-      signal,
-    )
+    for (const scope of TELEGRAM_MENU_SCOPES) {
+      await this.callTelegram<TelegramDeleteMyCommandsResponse>(
+        config,
+        'deleteMyCommands',
+        {
+          scope,
+        },
+        signal,
+      )
 
-    logForDebugging(`[telegram] refreshed menu commands: ${commands.length}`)
+      await this.callTelegram<TelegramSetMyCommandsResponse>(
+        config,
+        'setMyCommands',
+        {
+          commands,
+          scope,
+        },
+        signal,
+      )
+
+      logForDebugging(
+        `[telegram] refreshed menu commands for scope ${scope.type}: ${commands.length}`,
+      )
+    }
   }
 
   private handleUpdate(

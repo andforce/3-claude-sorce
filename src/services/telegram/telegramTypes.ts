@@ -109,6 +109,11 @@ export type TelegramSetMyCommandsResponse = {
   description?: string
 }
 
+export type TelegramDeleteMyCommandsResponse = {
+  ok: boolean
+  description?: string
+}
+
 export type TelegramEditMessageResponse = {
   ok: boolean
   description?: string
@@ -123,6 +128,14 @@ export type TelegramBotCommand = {
   command: string
   description: string
 }
+
+export type TelegramBotCommandScope =
+  | {
+      type: 'default'
+    }
+  | {
+      type: 'all_private_chats'
+    }
 
 export type TelegramInlineKeyboardButton = {
   text: string
