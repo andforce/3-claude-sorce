@@ -48,6 +48,10 @@ function isPathMetadata(metadata: unknown): metadata is {
   return typeof metadata === 'object' && metadata !== null && 'type' in metadata && (metadata.type === 'directory' || metadata.type === 'file');
 }
 
+function endsWithPathSeparator(token: string): boolean {
+  return token.endsWith('/') || token.endsWith('\\');
+}
+
 // Helper to determine selectedSuggestion when updating suggestions
 function getPreservedSelection(prevSuggestions: SuggestionItem[], prevSelection: number, newSuggestions: SuggestionItem[]): number {
   // No new suggestions
@@ -231,19 +235,21 @@ async function generateBashSuggestions(input: string, cursorOffset: number): Pro
  * @param suggestionId The ID of the suggestion to apply
  * @param tokenStartPos The start position of the token being replaced
  * @param tokenLength The length of the token being replaced
- * @param isDirectory Whether the suggestion is a directory (adds / suffix) or file (adds space)
+ * @param isDirectory Whether the suggestion is a directory (adds / plus space) or file (adds space)
+ * @param isQuoted Whether the original @ token was quoted
  * @returns Object with the new input text and cursor position
  */
-export function applyDirectorySuggestion(input: string, suggestionId: string, tokenStartPos: number, tokenLength: number, isDirectory: boolean): {
+export function applyDirectorySuggestion(input: string, suggestionId: string, tokenStartPos: number, tokenLength: number, isDirectory: boolean, isQuoted = false): {
   newInput: string;
   cursorPos: number;
 } {
-  const suffix = isDirectory ? '/' : ' ';
+  const pathSuffix = isDirectory ? '/' : '';
+  const pathValue = suggestionId + pathSuffix;
   const before = input.slice(0, tokenStartPos);
   const after = input.slice(tokenStartPos + tokenLength);
   // Always add @ prefix - if token already has it, we're replacing
   // the whole token (including @) with @suggestion.id
-  const replacement = '@' + suggestionId + suffix;
+  const replacement = isQuoted || pathValue.includes(' ') ? '@"' + pathValue + '" ' : '@' + pathValue + ' ';
   const newInput = before + replacement + after;
   return {
     newInput,
@@ -822,9 +828,11 @@ export function useTypeahead({
       if (completionToken && completionToken.token.startsWith('@')) {
         const searchToken = extractSearchToken(completionToken);
 
-        // If the token after @ is path-like, use path completion instead of fuzzy search
-        // This handles cases like @~/path, @./path, @/path for directory traversal
-        if (isPathLikeToken(searchToken)) {
+        // If the token after @ is path-like, use path completion instead of fuzzy search.
+        // This handles @~/path, @./path, @/path, plus project-relative
+        // directory browsing after accepting a folder mention and deleting
+        // the trailing space (for example, @src/).
+        if (isPathLikeToken(searchToken) || endsWithPathSeparator(searchToken)) {
           latestPathTokenRef.current = searchToken;
           const pathSuggestions = await getPathCompletions(searchToken, {
             maxResults: 10
@@ -842,6 +850,9 @@ export function useTypeahead({
             setSuggestionType('directory');
             return;
           }
+          debouncedFetchFileSuggestions.cancel();
+          clearSuggestions();
+          return;
         }
 
         // Skip if we already fetched for this exact token (prevents loop from
@@ -987,21 +998,11 @@ export function useTypeahead({
             const completionToken = completionTokenWithAt ?? extractCompletionToken(input, cursorOffset, false);
             if (completionToken) {
               const isDir = isPathMetadata(suggestion.metadata) && suggestion.metadata.type === 'directory';
-              const result = applyDirectorySuggestion(input, suggestion.id, completionToken.startPos, completionToken.token.length, isDir);
+              const result = applyDirectorySuggestion(input, suggestion.id, completionToken.startPos, completionToken.token.length, isDir, completionToken.isQuoted);
               newInput = result.newInput;
               onInputChange(newInput);
               setCursorOffset(result.cursorPos);
-              if (isDir) {
-                // For directories, fetch new suggestions for the updated path
-                setSuggestionsState(prev => ({
-                  ...prev,
-                  commandArgumentHint: undefined
-                }));
-                void updateSuggestions(newInput, result.cursorPos);
-              } else {
-                // For files, clear suggestions
-                clearSuggestions();
-              }
+              clearSuggestions();
             } else {
               // No completion token found (e.g., cursor after space) - just clear suggestions
               // without modifying input to avoid data loss
@@ -1055,7 +1056,11 @@ export function useTypeahead({
 
         // If there's a common prefix longer than what the user has typed,
         // replace the current input with the common prefix
-        if (commonPrefix.length > effectiveTokenLength) {
+        const selectedItem = suggestions[index];
+        const selectedItemIsDirectory = selectedItem
+          ? isPathMetadata(selectedItem.metadata) && selectedItem.metadata.type === 'directory'
+          : false;
+        if (commonPrefix.length > effectiveTokenLength && !selectedItemIsDirectory) {
           const replacementValue = formatReplacementValue({
             displayText: commonPrefix,
             mode,
@@ -1211,7 +1216,7 @@ export function useTypeahead({
         const completionToken = completionTokenWithAt ?? extractCompletionToken(input, cursorOffset, false);
         if (completionToken) {
           const isDir = isPathMetadata(suggestion.metadata) && suggestion.metadata.type === 'directory';
-          const result = applyDirectorySuggestion(input, suggestion.id, completionToken.startPos, completionToken.token.length, isDir);
+          const result = applyDirectorySuggestion(input, suggestion.id, completionToken.startPos, completionToken.token.length, isDir, completionToken.isQuoted);
           onInputChange(result.newInput);
           setCursorOffset(result.cursorPos);
         }
