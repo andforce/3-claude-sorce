@@ -288,6 +288,10 @@ import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type M
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
+import { QuickShellOverlay, type QuickShellProgress } from '../components/QuickShellOverlay.js';
+import type { ExecResult } from '../utils/Shell.js';
+import { runQuickShellCommand, type QuickShellCommand } from '../utils/quickShell.js';
+import { completeQuickShellInput } from '../utils/quickShellCompletion.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -1099,6 +1103,161 @@ export function REPL({
     }
     setToolJSXInternal(args);
   }, []);
+
+  const [quickShellVisible, setQuickShellVisible] = useState(false);
+  const [quickShellInput, setQuickShellInput] = useState('');
+  const [quickShellCursorOffset, setQuickShellCursorOffset] = useState(0);
+  const [quickShellHistory, setQuickShellHistory] = useState<string[]>([]);
+  const [quickShellHistoryIndex, setQuickShellHistoryIndex] = useState<number | null>(null);
+  const [quickShellRunningCommand, setQuickShellRunningCommand] = useState<string | null>(null);
+  const [quickShellProgress, setQuickShellProgress] = useState<QuickShellProgress | null>(null);
+  const [quickShellResult, setQuickShellResult] = useState<ExecResult | null>(null);
+  const [quickShellFinalOutput, setQuickShellFinalOutput] = useState('');
+  const [quickShellIdleOutput, setQuickShellIdleOutput] = useState('');
+  const {
+    columns: quickShellTerminalColumns,
+    rows: quickShellTerminalRows
+  } = useTerminalSize();
+  const quickShellAbortRef = useRef<AbortController | null>(null);
+  const quickShellCommandRef = useRef<QuickShellCommand | null>(null);
+  const quickShellProgressRef = useRef<QuickShellProgress | null>(null);
+
+  const handleToggleQuickShell = useCallback(() => {
+    setQuickShellVisible(visible => !visible);
+  }, []);
+  const handleCloseQuickShell = useCallback(() => {
+    setQuickShellVisible(false);
+  }, []);
+  const handleInterruptQuickShell = useCallback(() => {
+    const shellCommand = quickShellCommandRef.current;
+    if (shellCommand) {
+      quickShellAbortRef.current?.abort('quick-shell-interrupt');
+      shellCommand.kill();
+      return;
+    }
+    if (quickShellAbortRef.current) {
+      quickShellAbortRef.current.abort('quick-shell-interrupt');
+      return;
+    }
+    setQuickShellVisible(false);
+  }, []);
+  const handleQuickShellWriteInput = useCallback((input: string) => {
+    quickShellCommandRef.current?.write(input);
+  }, []);
+  const handleQuickShellHistoryUp = useCallback(() => {
+    setQuickShellHistoryIndex(index => {
+      if (!quickShellHistory.length) return index;
+      const nextIndex = index === null ? quickShellHistory.length - 1 : Math.max(0, index - 1);
+      const nextInput = quickShellHistory[nextIndex] ?? '';
+      setQuickShellInput(nextInput);
+      setQuickShellCursorOffset(nextInput.length);
+      setQuickShellIdleOutput('');
+      return nextIndex;
+    });
+  }, [quickShellHistory]);
+  const handleQuickShellHistoryDown = useCallback(() => {
+    setQuickShellHistoryIndex(index => {
+      if (index === null) return index;
+      const nextIndex = index + 1;
+      if (nextIndex >= quickShellHistory.length) {
+        setQuickShellInput('');
+        setQuickShellCursorOffset(0);
+        setQuickShellIdleOutput('');
+        return null;
+      }
+      const nextInput = quickShellHistory[nextIndex] ?? '';
+      setQuickShellInput(nextInput);
+      setQuickShellCursorOffset(nextInput.length);
+      setQuickShellIdleOutput('');
+      return nextIndex;
+    });
+  }, [quickShellHistory]);
+  const handleQuickShellComplete = useCallback(() => {
+    if (quickShellCommandRef.current) return;
+    const input = quickShellInput;
+    const cursorOffset = quickShellCursorOffset;
+    void (async () => {
+      const completion = await completeQuickShellInput(input, cursorOffset, Math.max(20, quickShellTerminalColumns - 4));
+      setQuickShellInput(completion.input);
+      setQuickShellCursorOffset(completion.cursorOffset);
+      setQuickShellIdleOutput(completion.output);
+      setQuickShellHistoryIndex(null);
+    })();
+  }, [quickShellCursorOffset, quickShellInput, quickShellTerminalColumns]);
+  const handleQuickShellSubmit = useCallback((rawCommand: string) => {
+    const command = rawCommand.trim();
+    if (!command || quickShellCommandRef.current) return;
+
+    const abortController = createAbortController();
+    quickShellAbortRef.current = abortController;
+    setQuickShellRunningCommand(command);
+    setQuickShellProgress({
+      output: '',
+      fullOutput: '',
+      elapsedTimeSeconds: 0
+    });
+    setQuickShellResult(null);
+    setQuickShellFinalOutput('');
+    setQuickShellIdleOutput('');
+    setQuickShellInput('');
+    setQuickShellCursorOffset(0);
+    setQuickShellHistoryIndex(null);
+    setQuickShellHistory(history => {
+      const next = history[history.length - 1] === command ? history : [...history, command];
+      return next.slice(-100);
+    });
+
+    void (async () => {
+      let shellCommand: QuickShellCommand | null = null;
+      const startedAt = Date.now();
+      try {
+        shellCommand = await runQuickShellCommand(command, abortController.signal, (lastLines, allLines, totalLines, totalBytes, isIncomplete) => {
+          const progress = {
+            output: lastLines,
+            fullOutput: allLines,
+            elapsedTimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+            totalLines,
+            totalBytes: isIncomplete ? totalBytes : undefined
+          };
+          quickShellProgressRef.current = progress;
+          setQuickShellProgress(progress);
+        }, {
+          columns: Math.max(20, quickShellTerminalColumns - 4),
+          rows: Math.max(4, quickShellTerminalRows - 8)
+        });
+        quickShellCommandRef.current = shellCommand;
+        const result = await shellCommand.result;
+        setQuickShellFinalOutput([result.stdout, result.stderr].filter(Boolean).join('\n') || quickShellProgressRef.current?.fullOutput || quickShellProgressRef.current?.output || '');
+        setQuickShellResult(result);
+      } catch (error) {
+        setQuickShellFinalOutput(errorMessage(error));
+        setQuickShellResult({
+          stdout: '',
+          stderr: errorMessage(error),
+          code: 1,
+          interrupted: abortController.signal.aborted
+        });
+      } finally {
+        shellCommand?.cleanup?.();
+        if (quickShellCommandRef.current === shellCommand) {
+          quickShellCommandRef.current = null;
+        }
+        if (quickShellAbortRef.current === abortController) {
+          quickShellAbortRef.current = null;
+        }
+        quickShellProgressRef.current = null;
+        setQuickShellRunningCommand(null);
+        setQuickShellProgress(null);
+      }
+    })();
+  }, [quickShellTerminalColumns, quickShellTerminalRows]);
+  useEffect(() => {
+    return () => {
+      quickShellAbortRef.current?.abort('quick-shell-unmount');
+      quickShellCommandRef.current?.kill();
+    };
+  }, []);
+
   const [toolUseConfirmQueue, setToolUseConfirmQueue] = useState<ToolUseConfirm[]>([]);
   // Sticky footer JSX registered by permission request components (currently
   // only ExitPlanModePermissionRequest). Renders in FullscreenLayout's `bottom`
@@ -2015,12 +2174,13 @@ export function REPL({
   // Permission and interactive dialogs can show even when toolJSX is set,
   // as long as shouldContinueAnimation is true. This prevents deadlocks when
   // agents set background hints while waiting for user interaction.
-  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'model-switch' | 'undercover-callout' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | undefined {
+  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'model-switch' | 'undercover-callout' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | 'quick-shell' | undefined {
     // Exit states always take precedence
     if (isExiting || exitFlow) return undefined;
 
     // High priority dialogs (always show regardless of typing)
     if (isMessageSelectorVisible) return 'message-selector';
+    if (quickShellVisible) return 'quick-shell';
 
     // Suppress interrupt dialogs while user is actively typing
     if (isPromptInputActive) return undefined;
@@ -4380,8 +4540,15 @@ export function REPL({
     // doesn't stopPropagation, so without this gate transcript:exit
     // would fire on the same Esc that cancels the bar (child registers
     // first, fires first, bubbles).
-    searchBarOpen: searchOpen
+    searchBarOpen: searchOpen,
+    quickShellVisible,
+    onToggleQuickShell: handleToggleQuickShell
   };
+  const quickShellOverlay: React.ReactNode = focusedInputDialog === 'quick-shell' ? <QuickShellOverlay visible={quickShellVisible} input={quickShellInput} cursorOffset={quickShellCursorOffset} runningCommand={quickShellRunningCommand} progress={quickShellProgress} result={quickShellResult} finalOutput={quickShellFinalOutput} idleOutput={quickShellIdleOutput} verbose={verbose} onInputChange={value => {
+    setQuickShellInput(value);
+    setQuickShellHistoryIndex(null);
+    setQuickShellIdleOutput('');
+  }} onCursorOffsetChange={setQuickShellCursorOffset} onSubmit={handleQuickShellSubmit} onHistoryUp={handleQuickShellHistoryUp} onHistoryDown={handleQuickShellHistoryDown} onComplete={handleQuickShellComplete} onClose={handleCloseQuickShell} onInterrupt={handleInterruptQuickShell} onWriteInput={handleQuickShellWriteInput} /> : null;
 
   // Use frozen lengths to slice arrays, avoiding memory overhead of cloning
   const transcriptMessages = frozenTranscriptState ? deferredMessages.slice(0, frozenTranscriptState.messagesLength) : deferredMessages;
@@ -4436,7 +4603,7 @@ export function REPL({
                 {transcriptMessagesElement}
                 {transcriptToolJSX}
                 <SandboxViolationExpandedView />
-              </>} bottom={searchOpen ? <TranscriptSearchBar jumpRef={jumpRef}
+              </>} modal={quickShellOverlay} bottom={searchOpen ? <TranscriptSearchBar jumpRef={jumpRef}
       // Seed was tried (c01578c8) — broke /hello muscle
       // memory (cursor lands after 'foo', /hello → foohello).
       // Cancel-restore handles the 'don't lose prior search'
@@ -4545,6 +4712,7 @@ export function REPL({
   // /config, /theme, /diff, ...) both go here now.
   const toolJsxCentered = isFullscreenEnvEnabled() && toolJSX?.isLocalJSXCommand === true;
   const centeredModal: React.ReactNode = toolJsxCentered ? toolJSX!.jsx : null;
+  const activeModal = quickShellOverlay ?? centeredModal;
 
   // <AlternateScreen> at the root: everything below is inside its
   // <Box height={rows}>. Handlers/contexts are zero-height so ScrollBox's
@@ -4564,11 +4732,11 @@ export function REPL({
           the modal's inner ScrollBox is not keyboard-driven. onScroll
           stays suppressed while a modal is showing so scroll doesn't
           stamp divider/pill state. */}
-      <ScrollKeybindingHandler scrollRef={scrollRef} isActive={isFullscreenEnvEnabled() && (centeredModal != null || !focusedInputDialog || focusedInputDialog === 'tool-permission')} onScroll={centeredModal || toolPermissionOverlay || viewedAgentTask ? undefined : composedOnScroll} />
+      <ScrollKeybindingHandler scrollRef={scrollRef} isActive={isFullscreenEnvEnabled() && !quickShellVisible && (activeModal != null || !focusedInputDialog || focusedInputDialog === 'tool-permission')} onScroll={activeModal || toolPermissionOverlay || viewedAgentTask ? undefined : composedOnScroll} />
       {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
       <CancelRequestHandler {...cancelRequestProps} />
       <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-        <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={true && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={centeredModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
+        <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={true && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={activeModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);
       }} scrollable={<>
@@ -4580,7 +4748,7 @@ export function REPL({
                   the ▔ divider, showing "❯ /config" as redundant clutter
                   (the modal IS the /config UI). Outside modals it stays so
                   the user sees their input echoed while Claude processes. */}
-              {!disabled && placeholderText && !centeredModal && <UserTextMessage param={{
+              {!disabled && placeholderText && !activeModal && <UserTextMessage param={{
           text: placeholderText,
           type: 'text'
         }} addMargin={true} verbose={verbose} />}

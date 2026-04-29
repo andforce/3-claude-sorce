@@ -42,6 +42,7 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
       'ctrl+l': 'app:redraw',
       'ctrl+t': 'app:toggleTodos',
       'ctrl+o': 'app:toggleTranscript',
+      'ctrl+`': 'app:toggleQuickShell',
       ...(feature('KAIROS') || feature('KAIROS_BRIEF')
         ? { 'ctrl+shift+b': 'app:toggleBrief' as const }
         : {}),
