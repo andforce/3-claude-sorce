@@ -5,7 +5,7 @@ import { installOAuthTokens } from '../cli/handlers/auth.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { setClipboard } from '../ink/termio/osc.js';
 import { useTerminalNotification } from '../ink/useTerminalNotification.js';
-import { Box, Link, Text } from '../ink.js';
+import { Box, Link, Text, useInput } from '../ink.js';
 import { useKeybinding } from '../keybindings/useKeybinding.js';
 import { getSSLErrorHint } from '../services/api/errorUtils.js';
 import { sendNotification } from '../services/notifier.js';
@@ -44,7 +44,7 @@ type OAuthStatus = {
 } // Show OpenRouter API key setup
 | {
   state: 'openai_custom_setup';
-  step: 'base' | 'key' | 'fetching_models' | 'select_model';
+  step: 'base' | 'key' | 'fetching_models' | 'models_fetch_error' | 'manual_models' | 'select_model';
   baseUrl?: string;
   apiKey?: string;
   models?: string[];
@@ -52,7 +52,7 @@ type OAuthStatus = {
 } // OpenAI-compatible: base URL → optional API key → GET /v1/models → pick model
 | {
   state: 'anthropic_custom_setup';
-  step: 'base' | 'key' | 'fetching_models' | 'select_model';
+  step: 'base' | 'key' | 'fetching_models' | 'models_fetch_error' | 'manual_models' | 'select_model';
   baseUrl?: string;
   apiKey?: string;
   models?: string[];
@@ -84,6 +84,142 @@ const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const COPILOT_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000;
 const PASTE_HERE_MSG = 'Paste code here if prompted > ';
+
+function parseManualModelIds(input: string): string[] {
+  return [...new Set(input.split(/[\s,]+/).map(model => model.trim()).filter(Boolean))];
+}
+
+function ManualModelIdsInput({
+  title,
+  fetchError,
+  onSubmit,
+  onCancel
+}: {
+  title: string;
+  fetchError?: string;
+  onSubmit: (models: string[]) => void;
+  onCancel: () => void;
+}): React.ReactNode {
+  const [value, setValue] = useState('');
+  const valueRef = useRef('');
+  const [cursorOffset, setCursorOffset] = useState(0);
+  const updateValue = (next: string) => {
+    valueRef.current = next;
+    setValue(next);
+  };
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel();
+      return;
+    }
+    if (key.return || input === '\r' || input === '\n') {
+      onSubmit(parseManualModelIds(valueRef.current));
+      return;
+    }
+    if (key.leftArrow) {
+      setCursorOffset(Math.max(0, cursorOffset - 1));
+      return;
+    }
+    if (key.rightArrow) {
+      setCursorOffset(Math.min(value.length, cursorOffset + 1));
+      return;
+    }
+    if (key.backspace || key.delete) {
+      if (cursorOffset > 0) {
+        const next = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset);
+        updateValue(next);
+        setCursorOffset(cursorOffset - 1);
+      }
+      return;
+    }
+    if (!input) {
+      return;
+    }
+    const newlineIndex = input.search(/[\r\n]/);
+    const text = newlineIndex >= 0 ? input.slice(0, newlineIndex) : input;
+    const next = value.slice(0, cursorOffset) + text + value.slice(cursorOffset);
+    updateValue(next);
+    setCursorOffset(cursorOffset + text.length);
+    if (newlineIndex >= 0) {
+      onSubmit(parseManualModelIds(next));
+    }
+  });
+
+  const cursorChar = cursorOffset < value.length ? value[cursorOffset] : ' ';
+  const beforeCursor = value.slice(0, cursorOffset);
+  const afterCursor = value.slice(cursorOffset + 1);
+  return <Box flexDirection="column" gap={1} marginTop={1}>
+    <Text bold={true}>{title}</Text>
+    {fetchError ? <Text color="error">{fetchError}</Text> : null}
+    <Text>Model IDs</Text>
+    <Text dimColor={true}>Enter one or more model IDs separated by commas or spaces.</Text>
+    <Box marginTop={1} flexDirection="column">
+      <Text>Model IDs: </Text>
+      <Box>
+        <Text>{beforeCursor}</Text>
+        <Text backgroundColor="white" color="black">{cursorChar}</Text>
+        <Text>{afterCursor}</Text>
+      </Box>
+    </Box>
+    <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to continue. Press <Text bold={true}>Esc</Text> to cancel.</Text>
+  </Box>;
+}
+
+function ModelsFetchErrorChoice({
+  title,
+  baseUrl,
+  fetchError,
+  onEditBaseUrl,
+  onEditApiKey,
+  onRetry,
+  onManualModels
+}: {
+  title: string;
+  baseUrl?: string;
+  fetchError?: string;
+  onEditBaseUrl: () => void;
+  onEditApiKey: () => void;
+  onRetry: () => void;
+  onManualModels: () => void;
+}): React.ReactNode {
+  return <Box flexDirection="column" gap={1} marginTop={1}>
+    <Text bold={true}>{title}</Text>
+    <Text dimColor={true}>Base URL: {baseUrl || '(not set)'}</Text>
+    {fetchError ? <Text color="error">{fetchError}</Text> : null}
+    <Text>{title} could not fetch models from GET /v1/models.</Text>
+    <Text dimColor={true}>First check whether the Base URL or API Key is wrong. If both are correct, this provider likely does not implement /v1/models.</Text>
+    <Box marginTop={1}>
+      <Select options={[{
+        label: <Text>Edit Base URL</Text>,
+        value: "base"
+      }, {
+        label: <Text>Re-enter API Key</Text>,
+        value: "key"
+      }, {
+        label: <Text>Retry /v1/models</Text>,
+        value: "retry"
+      }, {
+        label: <Text>Base URL and API Key are correct</Text>,
+        value: "manual"
+      }]} onChange={value => {
+        if (value === "base") {
+          onEditBaseUrl();
+          return;
+        }
+        if (value === "key") {
+          onEditApiKey();
+          return;
+        }
+        if (value === "retry") {
+          onRetry();
+          return;
+        }
+        onManualModels();
+      }} />
+    </Box>
+  </Box>;
+}
+
 export function ConsoleOAuthFlow({
   onDone,
   startingMessage,
@@ -322,10 +458,10 @@ export function ConsoleOAuthFlow({
       if (ids.length === 0) {
         setOAuthStatus({
           state: 'openai_custom_setup',
-          step: 'key',
+          step: 'models_fetch_error',
           baseUrl,
           apiKey,
-          fetchError: 'No models returned from /v1/models. Check the base URL and API key.'
+          fetchError: 'No models returned from /v1/models.'
         });
         return;
       }
@@ -342,7 +478,7 @@ export function ConsoleOAuthFlow({
       }
       setOAuthStatus({
         state: 'openai_custom_setup',
-        step: 'key',
+        step: 'models_fetch_error',
         baseUrl,
         apiKey,
         fetchError: err instanceof Error ? err.message : 'Failed to fetch models'
@@ -370,10 +506,10 @@ export function ConsoleOAuthFlow({
       if (ids.length === 0) {
         setOAuthStatus({
           state: 'anthropic_custom_setup',
-          step: 'key',
+          step: 'models_fetch_error',
           baseUrl,
           apiKey,
-          fetchError: 'No models returned from /v1/models. Check the base URL and API key.'
+          fetchError: 'No models returned from /v1/models.'
         });
         return;
       }
@@ -390,7 +526,7 @@ export function ConsoleOAuthFlow({
       }
       setOAuthStatus({
         state: 'anthropic_custom_setup',
-        step: 'key',
+        step: 'models_fetch_error',
         baseUrl,
         apiKey,
         fetchError: err instanceof Error ? err.message : 'Failed to fetch models'
@@ -956,6 +1092,66 @@ function OAuthStatusMessage(t0) {
             <Text dimColor={true}>Choose the model to use (from your API).</Text>
           </Box>;
         }
+        if (st.step === "models_fetch_error") {
+          return <ModelsFetchErrorChoice title="Custom OpenAI-compatible API" baseUrl={st.baseUrl} fetchError={st.fetchError} onEditBaseUrl={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openai_custom_setup",
+              step: "base"
+            });
+          }} onEditApiKey={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openai_custom_setup",
+              step: "key",
+              baseUrl: st.baseUrl
+            });
+          }} onRetry={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openai_custom_setup",
+              step: "fetching_models",
+              baseUrl: st.baseUrl,
+              apiKey: st.apiKey
+            });
+          }} onManualModels={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openai_custom_setup",
+              step: "manual_models",
+              baseUrl: st.baseUrl,
+              apiKey: st.apiKey,
+              fetchError: "Provider does not expose /v1/models. Enter supported model IDs manually."
+            });
+          }} />;
+        }
+        if (st.step === "manual_models") {
+          return <ManualModelIdsInput title="Custom OpenAI-compatible API" fetchError={st.fetchError} onCancel={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "idle"
+            });
+          }} onSubmit={models => {
+                if (models.length === 0) {
+                  setOAuthStatus({
+                    state: "openai_custom_setup",
+                    step: "manual_models",
+                    baseUrl: st.baseUrl,
+                    apiKey: st.apiKey,
+                    fetchError: "Enter at least one model ID."
+                  });
+                  return;
+                }
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openai_custom_setup",
+                  step: "select_model",
+                  baseUrl: st.baseUrl,
+                  apiKey: st.apiKey,
+                  models
+                });
+              }} />;
+        }
         return <Box flexDirection="column" gap={1} marginTop={1}>
             <Text bold={true}>Custom OpenAI-compatible API</Text>
             {st.fetchError ? <Text color="error">{st.fetchError}</Text> : null}
@@ -1044,6 +1240,66 @@ function OAuthStatusMessage(t0) {
             }} /></Box>
             <Text dimColor={true}>Choose the model to use (from your API).</Text>
           </Box>;
+        }
+        if (st.step === "models_fetch_error") {
+          return <ModelsFetchErrorChoice title="Custom Anthropic-compatible API" baseUrl={st.baseUrl} fetchError={st.fetchError} onEditBaseUrl={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "anthropic_custom_setup",
+              step: "base"
+            });
+          }} onEditApiKey={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "anthropic_custom_setup",
+              step: "key",
+              baseUrl: st.baseUrl
+            });
+          }} onRetry={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "anthropic_custom_setup",
+              step: "fetching_models",
+              baseUrl: st.baseUrl,
+              apiKey: st.apiKey
+            });
+          }} onManualModels={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "anthropic_custom_setup",
+              step: "manual_models",
+              baseUrl: st.baseUrl,
+              apiKey: st.apiKey,
+              fetchError: "Provider does not expose /v1/models. Enter supported model IDs manually."
+            });
+          }} />;
+        }
+        if (st.step === "manual_models") {
+          return <ManualModelIdsInput title="Custom Anthropic-compatible API" fetchError={st.fetchError} onCancel={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "idle"
+            });
+          }} onSubmit={models => {
+                if (models.length === 0) {
+                  setOAuthStatus({
+                    state: "anthropic_custom_setup",
+                    step: "manual_models",
+                    baseUrl: st.baseUrl,
+                    apiKey: st.apiKey,
+                    fetchError: "Enter at least one model ID."
+                  });
+                  return;
+                }
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "anthropic_custom_setup",
+                  step: "select_model",
+                  baseUrl: st.baseUrl,
+                  apiKey: st.apiKey,
+                  models
+                });
+              }} />;
         }
         return <Box flexDirection="column" gap={1} marginTop={1}>
             <Text bold={true}>Custom Anthropic-compatible API</Text>
