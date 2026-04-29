@@ -152,7 +152,7 @@ function ManualModelIdsInput({
     <Text bold={true}>{title}</Text>
     {fetchError ? <Text color="error">{fetchError}</Text> : null}
     <Text>Model IDs</Text>
-    <Text dimColor={true}>Enter one or more model IDs separated by commas or spaces.</Text>
+    <Text dimColor={true}>Enter one or more model IDs separated by commas or spaces (e.g. claude-sonnet-4-6, my-local-model)</Text>
     <Box marginTop={1} flexDirection="column">
       <Text>Model IDs: </Text>
       <Box>
@@ -775,43 +775,14 @@ function OAuthStatusMessage(t0) {
         } else {
           t3 = $[2];
         }
-        let t4;
-        if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-          t4 = {
-            label: <Text>Claude account with subscription ·{" "}<Text dimColor={true}>Pro, Max, Team, or Enterprise</Text>{false && <Text>{"\n"}<Text color="warning">[ANT-ONLY]</Text>{" "}<Text dimColor={true}>Please use this option unless you need to login to a special org for accessing sensitive data (e.g. customer data, HIPI data) with the Console option</Text></Text>}{"\n"}</Text>,
-            value: "claudeai"
-          };
-          $[3] = t4;
-        } else {
-          t4 = $[3];
-        }
-        let t5;
-        if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-          t5 = {
-            label: <Text>Anthropic Console account ·{" "}<Text dimColor={true}>API usage billing</Text>{"\n"}</Text>,
-            value: "console"
-          };
-          $[4] = t5;
-        } else {
-          t5 = $[4];
-        }
         let t6;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
           t6 = [{
-            label: <Text>GitHub Copilot ·{" "}<Text dimColor={true}>device code OAuth</Text>{"\n"}</Text>,
-            value: "github_copilot"
-          }, {
             label: <Text>OpenRouter ·{" "}<Text dimColor={true}>API key for multiple models</Text>{"\n"}</Text>,
             value: "openrouter"
           }, {
-            label: <Text>Custom OpenAI-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
-            value: "openai_custom"
-          }, {
             label: <Text>Custom Anthropic-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
             value: "anthropic_custom"
-          }, t4, t5, {
-            label: <Text>3rd-party platform ·{" "}<Text dimColor={true}>Amazon Bedrock, Microsoft Foundry, or Vertex AI</Text>{"\n"}</Text>,
-            value: "platform"
           }];
           $[5] = t6;
         } else {
