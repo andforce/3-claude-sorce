@@ -64,6 +64,15 @@ function getActiveProviderDefaultDescription(): string | undefined {
       }
       return `Use the active provider's default model (currently ${model.label})`
     }
+    case 'openrouter': {
+      const provider = config.connectedProviders?.openrouter
+      const modelId =
+        provider?.defaultModel ?? config.openrouterModelsCache?.[0]?.id
+      if (!provider?.apiKey || !modelId) {
+        return undefined
+      }
+      return `Use the active provider's default model (currently [OpenRouter] ${modelId})`
+    }
     case 'custom-openai': {
       const provider = config.connectedProviders?.['custom-openai']
       const modelId =
@@ -546,6 +555,31 @@ export function getModelOptions(fastMode = false): ModelOption[] {
           value: copilotModel.id,
           label: `[Copilot] ${copilotModel.label}`,
           description: copilotModel.description,
+        })
+      }
+    }
+  }
+
+  const openRouterCfg = getGlobalConfig()
+  const openRouterProv = openRouterCfg.connectedProviders?.openrouter
+  if (openRouterCfg.activeProvider === 'openrouter' && openRouterProv?.apiKey) {
+    const openRouterModels = openRouterCfg.openrouterModelsCache
+    if (openRouterModels && openRouterModels.length > 0) {
+      for (const row of openRouterModels) {
+        if (!options.some(existing => existing.value === row.id)) {
+          options.push({
+            value: row.id,
+            label: `[OpenRouter] ${row.id}`,
+            description: 'OpenRouter Anthropic-compatible API',
+          })
+        }
+      }
+    } else if (openRouterProv.defaultModel) {
+      if (!options.some(existing => existing.value === openRouterProv.defaultModel)) {
+        options.push({
+          value: openRouterProv.defaultModel,
+          label: `[OpenRouter] ${openRouterProv.defaultModel}`,
+          description: 'OpenRouter Anthropic-compatible API',
         })
       }
     }

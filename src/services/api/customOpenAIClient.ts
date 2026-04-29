@@ -310,3 +310,24 @@ export async function fetchAnthropicCompatibleModelIds(
   const ids = parseOpenAIStyleModelList(json)
   return ids
 }
+
+/**
+ * GET /v1/models from OpenRouter's Anthropic-compatible API.
+ */
+export async function fetchOpenRouterAnthropicModelIds(
+  apiKey: string,
+): Promise<string[]> {
+  const res = await fetch('https://openrouter.ai/api/v1/models', {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(20_000),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`OpenRouter /v1/models failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`)
+  }
+  const json: unknown = await res.json()
+  const ids = parseOpenAIStyleModelList(json)
+  return ids
+}

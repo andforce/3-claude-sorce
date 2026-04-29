@@ -15,8 +15,9 @@ import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { saveGlobalConfig } from '../utils/config.js';
 import { fetchCopilotModels } from '../services/api/copilotClient.js';
-import { fetchOpenAICompatibleModelIds, fetchAnthropicCompatibleModelIds } from '../services/api/customOpenAIClient.js';
+import { fetchOpenAICompatibleModelIds, fetchAnthropicCompatibleModelIds, fetchOpenRouterAnthropicModelIds } from '../services/api/customOpenAIClient.js';
 import { Select } from './CustomSelect/select.js';
+import { SearchableModelSelect } from './SearchableModelSelect.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
 import TextInput from './TextInput.js';
@@ -41,7 +42,11 @@ type OAuthStatus = {
 } // Polling for GitHub Copilot device code authorization
 | {
   state: 'openrouter_setup';
-} // Show OpenRouter API key setup
+  step: 'key' | 'fetching_models' | 'models_fetch_error' | 'manual_models' | 'select_model';
+  apiKey?: string;
+  models?: string[];
+  fetchError?: string;
+} // OpenRouter Anthropic-compatible: API key → GET /v1/models → pick model
 | {
   state: 'openai_custom_setup';
   step: 'base' | 'key' | 'fetching_models' | 'models_fetch_error' | 'manual_models' | 'select_model';
@@ -83,6 +88,7 @@ const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz';
 const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const COPILOT_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000;
+const OPENROUTER_ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
 const PASTE_HERE_MSG = 'Paste code here if prompted > ';
 
 function parseManualModelIds(input: string): string[] {
@@ -442,6 +448,50 @@ export function ConsoleOAuthFlow({
   }, [oauthStatus]);
 
   useEffect(() => {
+    if (oauthStatus.state !== 'openrouter_setup' || oauthStatus.step !== 'fetching_models') {
+      return;
+    }
+    const apiKey = oauthStatus.apiKey;
+    if (!apiKey) {
+      return;
+    }
+    let cancelled = false;
+    void fetchOpenRouterAnthropicModelIds(apiKey).then(ids => {
+      if (cancelled) {
+        return;
+      }
+      if (ids.length === 0) {
+        setOAuthStatus({
+          state: 'openrouter_setup',
+          step: 'manual_models',
+          apiKey,
+          fetchError: 'No models returned from /v1/models.'
+        });
+        return;
+      }
+      setOAuthStatus({
+        state: 'openrouter_setup',
+        step: 'select_model',
+        apiKey,
+        models: ids
+      });
+    }).catch(err => {
+      if (cancelled) {
+        return;
+      }
+      setOAuthStatus({
+        state: 'openrouter_setup',
+        step: 'models_fetch_error',
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models'
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [oauthStatus]);
+
+  useEffect(() => {
     if (oauthStatus.state !== 'openai_custom_setup' || oauthStatus.step !== 'fetching_models') {
       return;
     }
@@ -778,11 +828,11 @@ function OAuthStatusMessage(t0) {
         let t6;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
           t6 = [{
-            label: <Text>OpenRouter ·{" "}<Text dimColor={true}>API key for multiple models</Text>{"\n"}</Text>,
-            value: "openrouter"
-          }, {
             label: <Text>Custom Anthropic-compatible API ·{" "}<Text dimColor={true}>custom base URL and optional API key</Text>{"\n"}</Text>,
             value: "anthropic_custom"
+          }, {
+            label: <Text>OpenRouter Anthropic-compatible API ·{" "}<Text dimColor={true}>API key for multiple models</Text>{"\n"}</Text>,
+            value: "openrouter"
           }];
           $[5] = t6;
         } else {
@@ -839,7 +889,8 @@ function OAuthStatusMessage(t0) {
                 logEvent("tengu_oauth_openrouter_selected", {});
                 setPastedCode("");
                 setOAuthStatus({
-                  state: "openrouter_setup"
+                  state: "openrouter_setup",
+                  step: "key"
                 });
               } else if (value_0 === "openai_custom") {
                 logEvent("tengu_oauth_openai_custom_selected", {});
@@ -957,8 +1008,104 @@ function OAuthStatusMessage(t0) {
       }
     case "openrouter_setup":
       {
+        const st = oauthStatus;
+        if (st.step === "fetching_models") {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>OpenRouter Anthropic-compatible API</Text>
+            <Box><Spinner /><Text> Fetching models from GET /v1/models…</Text></Box>
+            <Text dimColor={true}>Base URL: {OPENROUTER_ANTHROPIC_BASE_URL}</Text>
+            <Text dimColor={true}>Press <Text bold={true}>Esc</Text> to cancel.</Text>
+          </Box>;
+        }
+        if (st.step === "select_model" && st.models && st.models.length > 0) {
+          return <Box flexDirection="column" gap={1} marginTop={1}>
+            <Text bold={true}>Select a model</Text>
+            <SearchableModelSelect providerLabel="Anthropic-compatible" baseUrl={OPENROUTER_ANTHROPIC_BASE_URL} models={st.models} onCancel={() => {
+              setOAuthStatus({
+                state: "idle"
+              });
+            }} onSelect={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  openrouter: {
+                    apiKey: st.apiKey || "",
+                    baseUrl: OPENROUTER_ANTHROPIC_BASE_URL,
+                    defaultModel: modelId,
+                    connectedAt: new Date().toISOString()
+                  }
+                },
+                activeProvider: "openrouter",
+                openrouterModelsCache: st.models.map(id => ({
+                  id
+                }))
+              }));
+              setOAuthStatus({
+                state: "success"
+              });
+            }} />
+          </Box>;
+        }
+        if (st.step === "models_fetch_error") {
+          return <ModelsFetchErrorChoice title="OpenRouter Anthropic-compatible API" baseUrl={OPENROUTER_ANTHROPIC_BASE_URL} fetchError={st.fetchError} onEditBaseUrl={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openrouter_setup",
+              step: "key",
+              apiKey: st.apiKey
+            });
+          }} onEditApiKey={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openrouter_setup",
+              step: "key",
+              apiKey: st.apiKey
+            });
+          }} onRetry={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openrouter_setup",
+              step: "fetching_models",
+              apiKey: st.apiKey
+            });
+          }} onManualModels={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "openrouter_setup",
+              step: "manual_models",
+              apiKey: st.apiKey,
+              fetchError: "Provider does not expose /v1/models. Enter supported model IDs manually."
+            });
+          }} />;
+        }
+        if (st.step === "manual_models") {
+          return <ManualModelIdsInput title="OpenRouter Anthropic-compatible API" fetchError={st.fetchError} onCancel={() => {
+            setPastedCode("");
+            setOAuthStatus({
+              state: "idle"
+            });
+          }} onSubmit={models => {
+                if (models.length === 0) {
+                  setOAuthStatus({
+                    state: "openrouter_setup",
+                    step: "manual_models",
+                    apiKey: st.apiKey,
+                    fetchError: "Enter at least one model ID."
+                  });
+                  return;
+                }
+                setPastedCode("");
+                setOAuthStatus({
+                  state: "openrouter_setup",
+                  step: "select_model",
+                  apiKey: st.apiKey,
+                  models
+                });
+              }} />;
+        }
         return <Box flexDirection="column" gap={1} marginTop={1}>
-            <Text bold={true}>OpenRouter Setup</Text>
+            <Text bold={true}>OpenRouter Anthropic-compatible API Setup</Text>
             <Text>Enter your OpenRouter API Key.</Text>
             <Text>Get it from:{" "}
               <Link url="https://openrouter.ai/keys">https://openrouter.ai/keys</Link>
@@ -968,30 +1115,26 @@ function OAuthStatusMessage(t0) {
               <TextInput value={pastedCode} onChange={setPastedCode} onSubmit={value_0 => {
                 if (!value_0.trim()) {
                   setPastedCode("");
-                  setOAuthStatus({
+                  setOAuthStatus(st.fetchError ? {
+                    state: "openrouter_setup",
+                    step: "key",
+                    fetchError: "API Key is required."
+                  } : {
                     state: "idle"
                   });
                   return;
                 }
                 const apiKey = value_0.trim();
-                saveGlobalConfig(current => ({
-                  ...current,
-                  connectedProviders: {
-                    ...(current.connectedProviders || {}),
-                    openrouter: {
-                      apiKey,
-                      connectedAt: new Date().toISOString(),
-                    },
-                  },
-                  activeProvider: 'openrouter',
-                }));
                 setPastedCode("");
                 setOAuthStatus({
-                  state: "success"
+                  state: "openrouter_setup",
+                  step: "fetching_models",
+                  apiKey
                 });
               }} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} columns={textInputColumns} mask="*" />
             </Box>
-            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to save. Leave empty and press Enter to go back.</Text>
+            {st.fetchError ? <Text color="error">{st.fetchError}</Text> : null}
+            <Text dimColor={true}>Press <Text bold={true}>Enter</Text> to fetch models. Leave empty and press Enter to go back.</Text>
           </Box>;
       }
     case "openai_custom_setup":
@@ -1033,11 +1176,11 @@ function OAuthStatusMessage(t0) {
         if (st.step === "select_model" && st.models && st.models.length > 0) {
           return <Box flexDirection="column" gap={1} marginTop={1}>
             <Text bold={true}>Select a model</Text>
-            <Text dimColor={true}>OpenAI-compatible · {st.baseUrl}</Text>
-            <Box marginTop={1}><Select options={st.models.map(m => ({
-              label: <Text>{m}</Text>,
-              value: m
-            }))} onChange={modelId => {
+            <SearchableModelSelect providerLabel="OpenAI-compatible" baseUrl={st.baseUrl} models={st.models} onCancel={() => {
+              setOAuthStatus({
+                state: "idle"
+              });
+            }} onSelect={modelId => {
               saveGlobalConfig(current => ({
                 ...current,
                 connectedProviders: {
@@ -1059,8 +1202,7 @@ function OAuthStatusMessage(t0) {
               setOAuthStatus({
                 state: "success"
               });
-            }} /></Box>
-            <Text dimColor={true}>Choose the model to use (from your API).</Text>
+            }} />
           </Box>;
         }
         if (st.step === "models_fetch_error") {
@@ -1182,11 +1324,11 @@ function OAuthStatusMessage(t0) {
         if (st.step === "select_model" && st.models && st.models.length > 0) {
           return <Box flexDirection="column" gap={1} marginTop={1}>
             <Text bold={true}>Select a model</Text>
-            <Text dimColor={true}>Anthropic-compatible · {st.baseUrl}</Text>
-            <Box marginTop={1}><Select options={st.models.map(m => ({
-              label: <Text>{m}</Text>,
-              value: m
-            }))} onChange={modelId => {
+            <SearchableModelSelect providerLabel="Anthropic-compatible" baseUrl={st.baseUrl} models={st.models} onCancel={() => {
+              setOAuthStatus({
+                state: "idle"
+              });
+            }} onSelect={modelId => {
               saveGlobalConfig(current => ({
                 ...current,
                 connectedProviders: {
@@ -1208,8 +1350,7 @@ function OAuthStatusMessage(t0) {
               setOAuthStatus({
                 state: "success"
               });
-            }} /></Box>
-            <Text dimColor={true}>Choose the model to use (from your API).</Text>
+            }} />
           </Box>;
         }
         if (st.step === "models_fetch_error") {
