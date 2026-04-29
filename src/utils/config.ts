@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import { randomBytes } from 'crypto'
-import { unwatchFile, watchFile } from 'fs'
+import { chmodSync, unwatchFile, watchFile } from 'fs'
 import memoize from 'lodash-es/memoize.js'
 import pickBy from 'lodash-es/pickBy.js'
 import { basename, dirname, join, resolve } from 'path'
@@ -16,7 +16,7 @@ import { getCwd } from '../utils/cwd.js'
 import { registerCleanup } from './cleanupRegistry.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
-import { getGlobalClaudeFile } from './env.js'
+import { getGlobalClaudeFile, getLegacyGlobalClaudeFile } from './env.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { ConfigParseError, getErrnoCode } from './errors.js'
 import { writeFileSyncAndFlush_DEPRECATED } from './file.js'
@@ -851,6 +851,46 @@ function wouldLoseAuthState(fresh: {
   return lostOauth || lostOnboarding
 }
 
+function migrateLegacyGlobalConfigFileIfNeeded(): void {
+  const file = getGlobalClaudeFile()
+  const legacyFile = getLegacyGlobalClaudeFile()
+  if (file === legacyFile) {
+    return
+  }
+
+  const fs = getFsImplementation()
+  try {
+    fs.statSync(file)
+    return
+  } catch (error) {
+    if (getErrnoCode(error) !== 'ENOENT') {
+      return
+    }
+  }
+
+  try {
+    fs.statSync(legacyFile)
+  } catch (error) {
+    if (getErrnoCode(error) !== 'ENOENT') {
+      logForDebugging(`Failed to stat legacy config file: ${error}`, {
+        level: 'error',
+      })
+    }
+    return
+  }
+
+  try {
+    fs.mkdirSync(dirname(file))
+    fs.copyFileSync(legacyFile, file)
+    chmodSync(file, 0o600)
+    logForDebugging(`Migrated global config from ${legacyFile} to ${file}`)
+  } catch (error) {
+    logForDebugging(`Failed to migrate legacy global config file: ${error}`, {
+      level: 'error',
+    })
+  }
+}
+
 export function saveGlobalConfig(
   updater: (currentConfig: GlobalConfig) => GlobalConfig,
 ): void {
@@ -863,6 +903,8 @@ export function saveGlobalConfig(
     Object.assign(TEST_GLOBAL_CONFIG_FOR_TESTING, config)
     return
   }
+
+  migrateLegacyGlobalConfigFileIfNeeded()
 
   let written: GlobalConfig | null = null
   try {
@@ -934,7 +976,7 @@ let configCacheHits = 0
 let configCacheMisses = 0
 // Session-total count of actual disk writes to the global config file.
 // Exposed for ant-only dev diagnostics (see inc-4552) so anomalous write
-// rates surface in the UI before they corrupt ~/.claude.json.
+// rates surface in the UI before they corrupt ~/.openclaude.json.
 let globalConfigWriteCount = 0
 
 export function getGlobalConfigWriteCount(): number {
@@ -1115,6 +1157,7 @@ export function getGlobalConfig(): GlobalConfig {
   // exactly once, before any UI is rendered. Stat before read so any race
   // self-corrects (old mtime + new content → watcher re-reads next tick).
   configCacheMisses++
+  migrateLegacyGlobalConfigFileIfNeeded()
   try {
     let stats: { mtimeMs: number; size: number } | null = null
     try {
@@ -1273,7 +1316,7 @@ function saveConfigWithLock<A extends object>(
     const currentConfig = getConfig(file, createDefault)
     if (file === getGlobalClaudeFile() && wouldLoseAuthState(currentConfig)) {
       logForDebugging(
-        'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.claude.json. See GH #3117.',
+        'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.openclaude.json. See GH #3117.',
         { level: 'error' },
       )
       logEvent('tengu_config_auth_loss_prevented', {})

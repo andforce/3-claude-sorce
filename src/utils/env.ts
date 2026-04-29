@@ -12,6 +12,12 @@ type Platform = 'win32' | 'darwin' | 'linux'
 export const getGlobalClaudeFile = memoize((): string => {
   const configHomeDir = getClaudeConfigHomeDir()
   const configSuffix = fileSuffixForOauthConfig()
+  return `${configHomeDir}${configSuffix}.json`
+})
+
+export const getLegacyGlobalClaudeFile = memoize((): string => {
+  const configHomeDir = getClaudeConfigHomeDir()
+  const configSuffix = fileSuffixForOauthConfig()
   return join(configHomeDir, `.config${configSuffix}.json`)
 })
 
