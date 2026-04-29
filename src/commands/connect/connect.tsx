@@ -64,7 +64,7 @@ type ConnectStep =
   | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
   | {
       type: 'custom-openai'
-      step: 'base' | 'key' | 'fetching' | 'select'
+      step: 'base' | 'key' | 'fetching' | 'models-fetch-error' | 'manual-models' | 'select'
       baseUrl?: string
       apiKey?: string
       models?: string[]
@@ -72,7 +72,7 @@ type ConnectStep =
     }
   | {
       type: 'custom-anthropic'
-      step: 'base' | 'key' | 'fetching' | 'select'
+      step: 'base' | 'key' | 'fetching' | 'models-fetch-error' | 'manual-models' | 'select'
       baseUrl?: string
       apiKey?: string
       models?: string[]
@@ -404,6 +404,90 @@ function ErrorDialog({ error, onClose }: { error: string; onClose: () => void })
   )
 }
 
+function parseManualModelIds(input: string): string[] {
+  return [
+    ...new Set(
+      input
+        .split(/[\s,]+/)
+        .map(model => model.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
+function ModelsFetchErrorChoice({
+  title,
+  baseUrl,
+  fetchError,
+  onEditBaseUrl,
+  onEditApiKey,
+  onManualModels,
+  onRetry,
+  onCancel,
+}: {
+  title: string
+  baseUrl?: string
+  fetchError?: string
+  onEditBaseUrl: () => void
+  onEditApiKey: () => void
+  onManualModels: () => void
+  onRetry: () => void
+  onCancel: () => void
+}) {
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text dimColor>Base URL: {baseUrl || '(not set)'}</Text>
+      {fetchError ? <Text color="red">{fetchError}</Text> : null}
+      <Box flexDirection="column" gap={1}>
+        <Text bold>{title} could not fetch models from GET /v1/models.</Text>
+        <Text dimColor>
+          First check whether the Base URL or API Key is wrong. If both are correct, this provider likely does not implement /v1/models.
+        </Text>
+      </Box>
+      <Select
+        options={[
+          {
+            label: <Text>Edit Base URL</Text>,
+            value: 'base',
+            hint: 'Use this if the endpoint path or host may be wrong',
+          },
+          {
+            label: <Text>Re-enter API Key</Text>,
+            value: 'key',
+            hint: 'Use this if the server may require a different key',
+          },
+          {
+            label: <Text>Retry /v1/models</Text>,
+            value: 'retry',
+            hint: 'Try the same Base URL and API Key again',
+          },
+          {
+            label: <Text>Base URL and API Key are correct</Text>,
+            value: 'manual',
+            hint: 'Continue by entering supported model IDs manually',
+          },
+        ]}
+        onChange={value => {
+          if (value === 'base') {
+            onEditBaseUrl()
+            return
+          }
+          if (value === 'key') {
+            onEditApiKey()
+            return
+          }
+          if (value === 'retry') {
+            onRetry()
+            return
+          }
+          onManualModels()
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
+  )
+}
+
 /** Single-line visible input (e.g. base URL). Empty Enter calls onEmptySubmit if set, else onCancel. */
 function VisibleLineInput({
   title,
@@ -702,10 +786,10 @@ function ConnectDialog({
       if (ids.length === 0) {
         setStep({
           type: 'custom-openai',
-          step: 'key',
+          step: 'manual-models',
           baseUrl,
           apiKey,
-          fetchError: 'No models returned from /v1/models. Check the base URL and API key.',
+          fetchError: 'No models returned from /v1/models. You can enter model IDs manually.',
         })
         return
       }
@@ -722,7 +806,7 @@ function ConnectDialog({
       }
       setStep({
         type: 'custom-openai',
-        step: 'key',
+        step: 'models-fetch-error',
         baseUrl,
         apiKey,
         fetchError: err instanceof Error ? err.message : 'Failed to fetch models',
@@ -750,10 +834,10 @@ function ConnectDialog({
       if (ids.length === 0) {
         setStep({
           type: 'custom-anthropic',
-          step: 'key',
+          step: 'manual-models',
           baseUrl,
           apiKey,
-          fetchError: 'No models returned from /v1/models. Check the base URL and API key.',
+          fetchError: 'No models returned from /v1/models. You can enter model IDs manually.',
         })
         return
       }
@@ -770,7 +854,7 @@ function ConnectDialog({
       }
       setStep({
         type: 'custom-anthropic',
-        step: 'key',
+        step: 'models-fetch-error',
         baseUrl,
         apiKey,
         fetchError: err instanceof Error ? err.message : 'Failed to fetch models',
@@ -887,6 +971,42 @@ function ConnectDialog({
         </Dialog>
       )
     }
+    if (step.step === 'models-fetch-error') {
+      const st = step
+      return (
+        <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+          <ModelsFetchErrorChoice
+            title="Custom OpenAI-compatible API"
+            baseUrl={st.baseUrl}
+            fetchError={st.fetchError}
+            onEditBaseUrl={() => {
+              setStep({ type: 'custom-openai', step: 'base' })
+            }}
+            onEditApiKey={() => {
+              setStep({ type: 'custom-openai', step: 'key', baseUrl: st.baseUrl })
+            }}
+            onRetry={() => {
+              setStep({
+                type: 'custom-openai',
+                step: 'fetching',
+                baseUrl: st.baseUrl,
+                apiKey: st.apiKey,
+              })
+            }}
+            onManualModels={() => {
+              setStep({
+                type: 'custom-openai',
+                step: 'manual-models',
+                baseUrl: st.baseUrl,
+                apiKey: st.apiKey,
+                fetchError: 'Provider does not expose /v1/models. Enter supported model IDs manually.',
+              })
+            }}
+            onCancel={handleCancel}
+          />
+        </Dialog>
+      )
+    }
     if (step.step === 'select' && step.models && step.models.length > 0) {
       const st = step
       return (
@@ -918,6 +1038,44 @@ function ConnectDialog({
                 setStep({ type: 'success', providerId: 'custom-openai' })
               }}
               onCancel={handleCancel}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'manual-models') {
+      const st = step
+      return (
+        <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            {st.fetchError ? <Text color="red">{st.fetchError}</Text> : null}
+            <VisibleLineInput
+              title="Model IDs"
+              hint="Enter one or more model IDs separated by commas or spaces (e.g. gpt-4o-mini, qwen2.5-coder)"
+              onSubmit={line => {
+                const models = parseManualModelIds(line)
+                if (models.length === 0) {
+                  setStep({
+                    ...st,
+                    fetchError: 'Enter at least one model ID.',
+                  })
+                  return
+                }
+                setStep({
+                  type: 'custom-openai',
+                  step: 'select',
+                  baseUrl: st.baseUrl,
+                  apiKey: st.apiKey,
+                  models,
+                })
+              }}
+              onCancel={handleCancel}
+              onEmptySubmit={() => {
+                setStep({
+                  ...st,
+                  fetchError: 'Enter at least one model ID.',
+                })
+              }}
             />
           </Box>
         </Dialog>
@@ -974,6 +1132,42 @@ function ConnectDialog({
         </Dialog>
       )
     }
+    if (step.step === 'models-fetch-error') {
+      const st = step
+      return (
+        <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+          <ModelsFetchErrorChoice
+            title="Custom Anthropic-compatible API"
+            baseUrl={st.baseUrl}
+            fetchError={st.fetchError}
+            onEditBaseUrl={() => {
+              setStep({ type: 'custom-anthropic', step: 'base' })
+            }}
+            onEditApiKey={() => {
+              setStep({ type: 'custom-anthropic', step: 'key', baseUrl: st.baseUrl })
+            }}
+            onRetry={() => {
+              setStep({
+                type: 'custom-anthropic',
+                step: 'fetching',
+                baseUrl: st.baseUrl,
+                apiKey: st.apiKey,
+              })
+            }}
+            onManualModels={() => {
+              setStep({
+                type: 'custom-anthropic',
+                step: 'manual-models',
+                baseUrl: st.baseUrl,
+                apiKey: st.apiKey,
+                fetchError: 'Provider does not expose /v1/models. Enter supported model IDs manually.',
+              })
+            }}
+            onCancel={handleCancel}
+          />
+        </Dialog>
+      )
+    }
     if (step.step === 'select' && step.models && step.models.length > 0) {
       const st = step
       return (
@@ -1005,6 +1199,44 @@ function ConnectDialog({
                 setStep({ type: 'success', providerId: 'custom-anthropic' })
               }}
               onCancel={handleCancel}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'manual-models') {
+      const st = step
+      return (
+        <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            {st.fetchError ? <Text color="red">{st.fetchError}</Text> : null}
+            <VisibleLineInput
+              title="Model IDs"
+              hint="Enter one or more model IDs separated by commas or spaces (e.g. claude-sonnet-4-6, my-local-model)"
+              onSubmit={line => {
+                const models = parseManualModelIds(line)
+                if (models.length === 0) {
+                  setStep({
+                    ...st,
+                    fetchError: 'Enter at least one model ID.',
+                  })
+                  return
+                }
+                setStep({
+                  type: 'custom-anthropic',
+                  step: 'select',
+                  baseUrl: st.baseUrl,
+                  apiKey: st.apiKey,
+                  models,
+                })
+              }}
+              onCancel={handleCancel}
+              onEmptySubmit={() => {
+                setStep({
+                  ...st,
+                  fetchError: 'Enter at least one model ID.',
+                })
+              }}
             />
           </Box>
         </Dialog>
