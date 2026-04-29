@@ -20,19 +20,9 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 
 const PROVIDERS: OptionWithDescription<string>[] = [
   {
-    value: 'github-copilot',
-    label: 'GitHub Copilot',
-    hint: 'Use GitHub Copilot models (GPT-4o, Claude, etc.) via OAuth',
-  },
-  {
     value: 'openrouter',
     label: 'OpenRouter',
     hint: 'Unified API for multiple models',
-  },
-  {
-    value: 'custom-openai',
-    label: 'Custom OpenAI-compatible API',
-    hint: 'Self-hosted or LAN · base URL + optional key · pick model from /v1/models',
   },
   {
     value: 'custom-anthropic',
