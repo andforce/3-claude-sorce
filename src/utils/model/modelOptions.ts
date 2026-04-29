@@ -32,6 +32,7 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { hasConnectedActiveProvider } from '../connectedProviders.js'
 import { isCopilotConnected, getCopilotModelsCached } from '../../services/api/copilotClient.js'
 import { isCustomOpenAIConnected, getCustomOpenAIProvider } from '../../services/api/customOpenAIClient.js'
 
@@ -348,6 +349,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       getSonnet46_1MOption(),
       getHaiku45Option(),
     ]
+  }
+
+  if (hasConnectedActiveProvider()) {
+    return [getDefaultOptionForUser(fastMode)]
   }
 
   if (isClaudeAISubscriber()) {
