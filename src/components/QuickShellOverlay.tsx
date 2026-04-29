@@ -24,12 +24,14 @@ type Props = {
   progress: QuickShellProgress | null
   result: ExecResult | null
   finalOutput: string
+  idleOutput: string
   verbose: boolean
   onInputChange: (value: string) => void
   onCursorOffsetChange: (offset: number) => void
   onSubmit: (command: string) => void
   onHistoryUp: () => void
   onHistoryDown: () => void
+  onComplete: () => void
   onClose: () => void
   onInterrupt: () => void
   onWriteInput: (input: string) => void
@@ -69,12 +71,14 @@ export function QuickShellOverlay({
   progress,
   result,
   finalOutput,
+  idleOutput,
   verbose,
   onInputChange,
   onCursorOffsetChange,
   onSubmit,
   onHistoryUp,
   onHistoryDown,
+  onComplete,
   onClose,
   onInterrupt,
   onWriteInput,
@@ -109,6 +113,11 @@ export function QuickShellOverlay({
         event.stopImmediatePropagation()
         return
       }
+      if (key.tab && !key.shift) {
+        onComplete()
+        event.stopImmediatePropagation()
+        return
+      }
       if (key.ctrl && raw === 'c') {
         onInterrupt()
         event.stopImmediatePropagation()
@@ -131,8 +140,8 @@ export function QuickShellOverlay({
   const output = isRunning
     ? progress?.fullOutput || progress?.output || ''
     : result
-      ? finalOutput || resultOutput(result)
-      : ''
+      ? idleOutput || finalOutput || resultOutput(result)
+      : idleOutput
   const outputLines = output ? toAnsiLines(output).slice(-maxOutputRows) : []
 
   return (

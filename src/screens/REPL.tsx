@@ -291,6 +291,7 @@ import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/a
 import { QuickShellOverlay, type QuickShellProgress } from '../components/QuickShellOverlay.js';
 import type { ExecResult } from '../utils/Shell.js';
 import { runQuickShellCommand, type QuickShellCommand } from '../utils/quickShell.js';
+import { completeQuickShellInput } from '../utils/quickShellCompletion.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -1112,6 +1113,7 @@ export function REPL({
   const [quickShellProgress, setQuickShellProgress] = useState<QuickShellProgress | null>(null);
   const [quickShellResult, setQuickShellResult] = useState<ExecResult | null>(null);
   const [quickShellFinalOutput, setQuickShellFinalOutput] = useState('');
+  const [quickShellIdleOutput, setQuickShellIdleOutput] = useState('');
   const {
     columns: quickShellTerminalColumns,
     rows: quickShellTerminalRows
@@ -1149,6 +1151,7 @@ export function REPL({
       const nextInput = quickShellHistory[nextIndex] ?? '';
       setQuickShellInput(nextInput);
       setQuickShellCursorOffset(nextInput.length);
+      setQuickShellIdleOutput('');
       return nextIndex;
     });
   }, [quickShellHistory]);
@@ -1159,14 +1162,28 @@ export function REPL({
       if (nextIndex >= quickShellHistory.length) {
         setQuickShellInput('');
         setQuickShellCursorOffset(0);
+        setQuickShellIdleOutput('');
         return null;
       }
       const nextInput = quickShellHistory[nextIndex] ?? '';
       setQuickShellInput(nextInput);
       setQuickShellCursorOffset(nextInput.length);
+      setQuickShellIdleOutput('');
       return nextIndex;
     });
   }, [quickShellHistory]);
+  const handleQuickShellComplete = useCallback(() => {
+    if (quickShellCommandRef.current) return;
+    const input = quickShellInput;
+    const cursorOffset = quickShellCursorOffset;
+    void (async () => {
+      const completion = await completeQuickShellInput(input, cursorOffset, Math.max(20, quickShellTerminalColumns - 4));
+      setQuickShellInput(completion.input);
+      setQuickShellCursorOffset(completion.cursorOffset);
+      setQuickShellIdleOutput(completion.output);
+      setQuickShellHistoryIndex(null);
+    })();
+  }, [quickShellCursorOffset, quickShellInput, quickShellTerminalColumns]);
   const handleQuickShellSubmit = useCallback((rawCommand: string) => {
     const command = rawCommand.trim();
     if (!command || quickShellCommandRef.current) return;
@@ -1181,6 +1198,7 @@ export function REPL({
     });
     setQuickShellResult(null);
     setQuickShellFinalOutput('');
+    setQuickShellIdleOutput('');
     setQuickShellInput('');
     setQuickShellCursorOffset(0);
     setQuickShellHistoryIndex(null);
@@ -4526,10 +4544,11 @@ export function REPL({
     quickShellVisible,
     onToggleQuickShell: handleToggleQuickShell
   };
-  const quickShellOverlay: React.ReactNode = focusedInputDialog === 'quick-shell' ? <QuickShellOverlay visible={quickShellVisible} input={quickShellInput} cursorOffset={quickShellCursorOffset} runningCommand={quickShellRunningCommand} progress={quickShellProgress} result={quickShellResult} finalOutput={quickShellFinalOutput} verbose={verbose} onInputChange={value => {
+  const quickShellOverlay: React.ReactNode = focusedInputDialog === 'quick-shell' ? <QuickShellOverlay visible={quickShellVisible} input={quickShellInput} cursorOffset={quickShellCursorOffset} runningCommand={quickShellRunningCommand} progress={quickShellProgress} result={quickShellResult} finalOutput={quickShellFinalOutput} idleOutput={quickShellIdleOutput} verbose={verbose} onInputChange={value => {
     setQuickShellInput(value);
     setQuickShellHistoryIndex(null);
-  }} onCursorOffsetChange={setQuickShellCursorOffset} onSubmit={handleQuickShellSubmit} onHistoryUp={handleQuickShellHistoryUp} onHistoryDown={handleQuickShellHistoryDown} onClose={handleCloseQuickShell} onInterrupt={handleInterruptQuickShell} onWriteInput={handleQuickShellWriteInput} /> : null;
+    setQuickShellIdleOutput('');
+  }} onCursorOffsetChange={setQuickShellCursorOffset} onSubmit={handleQuickShellSubmit} onHistoryUp={handleQuickShellHistoryUp} onHistoryDown={handleQuickShellHistoryDown} onComplete={handleQuickShellComplete} onClose={handleCloseQuickShell} onInterrupt={handleInterruptQuickShell} onWriteInput={handleQuickShellWriteInput} /> : null;
 
   // Use frozen lengths to slice arrays, avoiding memory overhead of cloning
   const transcriptMessages = frozenTranscriptState ? deferredMessages.slice(0, frozenTranscriptState.messagesLength) : deferredMessages;
