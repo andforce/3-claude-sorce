@@ -24,6 +24,8 @@ type Props = {
   onExitTranscript?: () => void;
   virtualScrollActive?: boolean;
   searchBarOpen?: boolean;
+  quickShellVisible?: boolean;
+  onToggleQuickShell?: () => void;
 };
 
 /**
@@ -42,7 +44,9 @@ export function GlobalKeybindingHandlers({
   onEnterTranscript,
   onExitTranscript,
   virtualScrollActive,
-  searchBarOpen = false
+  searchBarOpen = false,
+  quickShellVisible = false,
+  onToggleQuickShell
 }: Props): null {
   const expandedView = useAppState(s => s.expandedView);
   const setAppState = useSetAppState();
@@ -183,15 +187,23 @@ export function GlobalKeybindingHandlers({
 
   // Register keybinding handlers
   useKeybinding('app:toggleTodos', handleToggleTodos, {
-    context: 'Global'
+    context: 'Global',
+    isActive: !quickShellVisible
   });
   useKeybinding('app:toggleTranscript', handleToggleTranscript, {
+    context: 'Global',
+    isActive: !quickShellVisible
+  });
+  useKeybinding('app:toggleQuickShell', () => {
+    onToggleQuickShell?.();
+  }, {
     context: 'Global'
   });
   if (feature('KAIROS') || feature('KAIROS_BRIEF')) {
     // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
     useKeybinding('app:toggleBrief', handleToggleBrief, {
-      context: 'Global'
+      context: 'Global',
+      isActive: !quickShellVisible
     });
   }
 
@@ -202,7 +214,8 @@ export function GlobalKeybindingHandlers({
       showTeammateMessagePreview: !prev_3.showTeammateMessagePreview
     }));
   }, {
-    context: 'Global'
+    context: 'Global',
+    isActive: !quickShellVisible
   });
 
   // Toggle built-in terminal panel (meta+j).
@@ -216,7 +229,8 @@ export function GlobalKeybindingHandlers({
     }
   }, []);
   useKeybinding('app:toggleTerminal', handleToggleTerminal, {
-    context: 'Global'
+    context: 'Global',
+    isActive: !quickShellVisible
   });
 
   // Clear screen and force full redraw (ctrl+l). Recovery path when the
@@ -226,14 +240,15 @@ export function GlobalKeybindingHandlers({
     instances.get(process.stdout)?.forceRedraw();
   }, []);
   useKeybinding('app:redraw', handleRedraw, {
-    context: 'Global'
+    context: 'Global',
+    isActive: !quickShellVisible
   });
 
   // Transcript-specific bindings (only active when in transcript mode)
   const isInTranscript = screen === 'transcript';
   useKeybinding('transcript:toggleShowAll', handleToggleShowAll, {
     context: 'Transcript',
-    isActive: isInTranscript && !virtualScrollActive
+    isActive: isInTranscript && !virtualScrollActive && !quickShellVisible
   });
   useKeybinding('transcript:exit', handleExitTranscript, {
     context: 'Transcript',
@@ -242,7 +257,7 @@ export function GlobalKeybindingHandlers({
     // directly, same as less q. useSearchInput doesn't stopPropagation,
     // so without this gate its onCancel AND this handler would both
     // fire on one Esc (child registers first, fires first, bubbles).
-    isActive: isInTranscript && !searchBarOpen
+    isActive: isInTranscript && !searchBarOpen && !quickShellVisible
   });
   return null;
 }
