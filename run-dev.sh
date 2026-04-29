@@ -10,7 +10,9 @@ RUNTIME="node"
 INSPECT_MODE=""
 INSPECT_HOST="${INSPECT_HOST:-127.0.0.1}"
 INSPECT_PORT="${INSPECT_PORT:-9229}"
+BUN_VERSION="${BUN_VERSION:-1.3.11}"
 CLI_ARGS=()
+BUN_CMD=()
 
 usage() {
   cat <<'EOF'
@@ -41,14 +43,14 @@ usage() {
 EOF
 }
 
-find_bun() {
+set_bun_cmd() {
   if [[ -n "${BUN_BIN:-}" ]]; then
-    printf '%s\n' "$BUN_BIN"
+    BUN_CMD=("$BUN_BIN")
     return 0
   fi
 
   if command -v bun >/dev/null 2>&1; then
-    command -v bun
+    BUN_CMD=("$(command -v bun)")
     return 0
   fi
 
@@ -57,10 +59,15 @@ find_bun() {
     "$HOME/.bun/bin/bun-darwin-aarch64/bun" \
     "$HOME/.bun/bin/bun-linux-x64/bun"; do
     if [[ -x "$candidate" ]]; then
-      printf '%s\n' "$candidate"
+      BUN_CMD=("$candidate")
       return 0
     fi
   done
+
+  if command -v npx >/dev/null 2>&1; then
+    BUN_CMD=(npx --yes "bun@${BUN_VERSION}")
+    return 0
+  fi
 
   return 1
 }
@@ -117,14 +124,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-BUN="$(find_bun)" || {
-  echo "错误：找不到 Bun。请先安装 Bun 1.3.11+，或用 BUN_BIN=/path/to/bun 指定。" >&2
+set_bun_cmd || {
+  echo "错误：找不到 Bun。请先安装 Bun ${BUN_VERSION}+，或用 BUN_BIN=/path/to/bun 指定。" >&2
+  echo "提示：如果已安装 Node.js/npm，本脚本也可通过 npx 自动下载临时 Bun。" >&2
   exit 1
 }
 
 if [[ "$BUILD" == true ]]; then
   echo "==> 构建 dist/cli.js"
-  "$BUN" run build.ts
+  "${BUN_CMD[@]}" run build.ts
 fi
 
 if [[ "$BUILD_ONLY" == true ]]; then
@@ -139,7 +147,7 @@ fi
 echo "==> 运行 dist/cli.js"
 
 if [[ "$RUNTIME" == "bun" ]]; then
-  CMD=("$BUN")
+  CMD=("${BUN_CMD[@]}")
   case "$INSPECT_MODE" in
     debug) CMD+=("--inspect-brk=${INSPECT_HOST}:${INSPECT_PORT}") ;;
     inspect) CMD+=("--inspect=${INSPECT_HOST}:${INSPECT_PORT}") ;;

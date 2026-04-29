@@ -30,6 +30,14 @@ export PATH="$HOME/.local/bin:$PATH"
 openclaude --help
 ```
 
+## 数据目录
+
+OpenClaude 默认将运行时配置、会话、插件、缓存等数据写入 `~/.openclaude`。如需自定义位置，可设置：
+
+```bash
+export OPENCLAUDE_CONFIG_DIR="$HOME/.config/openclaude"
+```
+
 ## 斜杠命令（节选）
 
 在 REPL 中可使用以下命令（完整列表以程序内 `/help` 为准）。

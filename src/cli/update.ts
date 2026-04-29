@@ -1,4 +1,5 @@
 import chalk from 'chalk'
+import { dirname } from 'path'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
   getLatestVersion,
@@ -15,6 +16,7 @@ import { logForDebugging } from 'src/utils/debug.js'
 import { getDoctorDiagnostic } from 'src/utils/doctorDiagnostic.js'
 import { gracefulShutdown } from 'src/utils/gracefulShutdown.js'
 import {
+  getLocalClaudePath,
   installOrUpdateClaudePackage,
   localInstallationExists,
 } from 'src/utils/localInstaller.js'
@@ -384,9 +386,10 @@ export async function update() {
         'Error: Insufficient permissions to install update\n',
       )
       if (useLocalUpdate) {
+        const localInstallDir = dirname(getLocalClaudePath())
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ${localInstallDir} && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
@@ -399,9 +402,10 @@ export async function update() {
     case 'install_failed':
       process.stderr.write('Error: Failed to install update\n')
       if (useLocalUpdate) {
+        const localInstallDir = dirname(getLocalClaudePath())
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ${localInstallDir} && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write(
