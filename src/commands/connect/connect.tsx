@@ -10,8 +10,10 @@ import { fetchCopilotModels } from '../../services/api/copilotClient.js'
 import {
   fetchOpenAICompatibleModelIds,
   fetchAnthropicCompatibleModelIds,
+  fetchOpenRouterAnthropicModelIds,
 } from '../../services/api/customOpenAIClient.js'
 import { Spinner } from '../../components/Spinner.js'
+import { SearchableModelSelect } from '../../components/SearchableModelSelect.js'
 
 const COPILOT_CLIENT_ID = 'Ov23li8tweQw6odWQebz'
 const COPILOT_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -20,16 +22,18 @@ const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 
 const PROVIDERS: OptionWithDescription<string>[] = [
   {
-    value: 'openrouter',
-    label: 'OpenRouter',
-    hint: 'Unified API for multiple models',
-  },
-  {
     value: 'custom-anthropic',
     label: 'Custom Anthropic-compatible API',
     hint: 'Self-hosted or LAN · base URL + optional key · pick model from /v1/models',
   },
+  {
+    value: 'openrouter',
+    label: 'OpenRouter Anthropic-compatible API',
+    hint: 'Unified API for multiple models',
+  },
 ]
+
+const OPENROUTER_ANTHROPIC_BASE_URL = 'https://openrouter.ai/api'
 
 const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlaceholder: string }> = {
   'kimi-for-coding': {
@@ -38,7 +42,7 @@ const PROVIDER_CONFIG: Record<string, { name: string; apiKeyUrl: string; keyPlac
     keyPlaceholder: 'sk-...',
   },
   openrouter: {
-    name: 'OpenRouter',
+    name: 'OpenRouter Anthropic-compatible API',
     apiKeyUrl: 'https://openrouter.ai/keys',
     keyPlaceholder: 'sk-or-...',
   },
@@ -52,6 +56,13 @@ type ConnectStep =
   | { type: 'error'; error: string }
   | { type: 'copilot-oauth'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
   | { type: 'copilot-polling'; userCode: string; verificationUri: string; deviceCode: string; interval: number }
+  | {
+      type: 'openrouter'
+      step: 'key' | 'fetching' | 'models-fetch-error' | 'manual-models' | 'select'
+      apiKey?: string
+      models?: string[]
+      fetchError?: string
+    }
   | {
       type: 'custom-openai'
       step: 'base' | 'key' | 'fetching' | 'models-fetch-error' | 'manual-models' | 'select'
@@ -674,6 +685,10 @@ function ConnectDialog({
       setStep({ type: 'custom-anthropic', step: 'base' })
       return
     }
+    if (providerId === 'openrouter') {
+      setStep({ type: 'openrouter', step: 'key' })
+      return
+    }
 
     if (!PROVIDER_CONFIG[providerId]) {
       setStep({ type: 'error', error: `Unknown provider: ${providerId}` })
@@ -699,6 +714,9 @@ function ConnectDialog({
           ...(current.connectedProviders || {}),
           [providerId]: {
             apiKey,
+            ...(providerId === 'openrouter'
+              ? { baseUrl: OPENROUTER_ANTHROPIC_BASE_URL }
+              : {}),
             connectedAt: new Date().toISOString(),
           },
         },
@@ -758,6 +776,50 @@ function ConnectDialog({
   const handleErrorClose = () => {
     setStep({ type: 'select-provider' })
   }
+
+  React.useEffect(() => {
+    if (step.type !== 'openrouter' || step.step !== 'fetching') {
+      return
+    }
+    const apiKey = step.apiKey
+    if (!apiKey) {
+      return
+    }
+    let cancelled = false
+    void fetchOpenRouterAnthropicModelIds(apiKey).then(ids => {
+      if (cancelled) {
+        return
+      }
+      if (ids.length === 0) {
+        setStep({
+          type: 'openrouter',
+          step: 'manual-models',
+          apiKey,
+          fetchError: 'No models returned from /v1/models. You can enter model IDs manually.',
+        })
+        return
+      }
+      setStep({
+        type: 'openrouter',
+        step: 'select',
+        apiKey,
+        models: ids,
+      })
+    }).catch(err => {
+      if (cancelled) {
+        return
+      }
+      setStep({
+        type: 'openrouter',
+        step: 'models-fetch-error',
+        apiKey,
+        fetchError: err instanceof Error ? err.message : 'Failed to fetch models',
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [step])
 
   React.useEffect(() => {
     if (step.type !== 'custom-openai' || step.step !== 'fetching') {
@@ -932,6 +994,154 @@ function ConnectDialog({
     )
   }
 
+  if (step.type === 'openrouter') {
+    if (step.step === 'key') {
+      return (
+        <Dialog title="OpenRouter Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            {step.fetchError ? <Text color="red">{step.fetchError}</Text> : null}
+            <OptionalMaskedKeyInput
+              title="API Key"
+              hint="Used for /v1/models and Messages."
+              onSubmit={apiKey => {
+                if (!apiKey) {
+                  setStep({
+                    type: 'openrouter',
+                    step: 'key',
+                    fetchError: 'API Key is required.',
+                  })
+                  return
+                }
+                setStep({
+                  type: 'openrouter',
+                  step: 'fetching',
+                  apiKey,
+                })
+              }}
+              onCancel={handleCancel}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'fetching') {
+      return (
+        <Dialog title="OpenRouter Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            <Box>
+              <Spinner />
+              <Text> Fetching models from GET /v1/models…</Text>
+            </Box>
+            <Text dimColor>Base URL: {OPENROUTER_ANTHROPIC_BASE_URL}</Text>
+            <Text dimColor>[Esc] cancel</Text>
+          </Box>
+        </Dialog>
+      )
+    }
+    if (step.step === 'models-fetch-error') {
+      const st = step
+      return (
+        <Dialog title="OpenRouter Anthropic-compatible API" onCancel={handleCancel}>
+          <ModelsFetchErrorChoice
+            title="OpenRouter Anthropic-compatible API"
+            baseUrl={OPENROUTER_ANTHROPIC_BASE_URL}
+            fetchError={st.fetchError}
+            onEditBaseUrl={() => {
+              setStep({ type: 'openrouter', step: 'key', apiKey: st.apiKey })
+            }}
+            onEditApiKey={() => {
+              setStep({ type: 'openrouter', step: 'key', apiKey: st.apiKey })
+            }}
+            onRetry={() => {
+              setStep({
+                type: 'openrouter',
+                step: 'fetching',
+                apiKey: st.apiKey,
+              })
+            }}
+            onManualModels={() => {
+              setStep({
+                type: 'openrouter',
+                step: 'manual-models',
+                apiKey: st.apiKey,
+                fetchError: 'Provider does not expose /v1/models. Enter supported model IDs manually.',
+              })
+            }}
+            onCancel={handleCancel}
+          />
+        </Dialog>
+      )
+    }
+    if (step.step === 'select' && step.models && step.models.length > 0) {
+      const st = step
+      return (
+        <Dialog title="OpenRouter Anthropic-compatible API" onCancel={handleCancel}>
+          <SearchableModelSelect
+            providerLabel="Anthropic-compatible"
+            baseUrl={OPENROUTER_ANTHROPIC_BASE_URL}
+            models={st.models}
+            onSelect={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  openrouter: {
+                    apiKey: st.apiKey || '',
+                    baseUrl: OPENROUTER_ANTHROPIC_BASE_URL,
+                    defaultModel: modelId,
+                    connectedAt: new Date().toISOString(),
+                  },
+                },
+                activeProvider: 'openrouter',
+                openrouterModelsCache: st.models.map(id => ({ id })),
+              }))
+              onChangeAPIKey()
+              setStep({ type: 'success', providerId: 'openrouter' })
+            }}
+            onCancel={handleCancel}
+          />
+        </Dialog>
+      )
+    }
+    if (step.step === 'manual-models') {
+      const st = step
+      return (
+        <Dialog title="OpenRouter Anthropic-compatible API" onCancel={handleCancel}>
+          <Box flexDirection="column" gap={1}>
+            {st.fetchError ? <Text color="red">{st.fetchError}</Text> : null}
+            <VisibleLineInput
+              title="Model IDs"
+              hint="Enter one or more model IDs separated by commas or spaces (e.g. anthropic/claude-sonnet-4)"
+              onSubmit={line => {
+                const models = parseManualModelIds(line)
+                if (models.length === 0) {
+                  setStep({
+                    ...st,
+                    fetchError: 'Enter at least one model ID.',
+                  })
+                  return
+                }
+                setStep({
+                  type: 'openrouter',
+                  step: 'select',
+                  apiKey: st.apiKey,
+                  models,
+                })
+              }}
+              onCancel={handleCancel}
+              onEmptySubmit={() => {
+                setStep({
+                  ...st,
+                  fetchError: 'Enter at least one model ID.',
+                })
+              }}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+  }
+
   if (step.type === 'custom-openai') {
     if (step.step === 'base') {
       return (
@@ -1001,35 +1211,30 @@ function ConnectDialog({
       const st = step
       return (
         <Dialog title="Custom OpenAI-compatible API" onCancel={handleCancel}>
-          <Box flexDirection="column" gap={1}>
-            <Text dimColor>OpenAI-compatible · {st.baseUrl}</Text>
-            <Text bold>Select a model</Text>
-            <Select
-              options={st.models.map(m => ({
-                label: <Text>{m}</Text>,
-                value: m,
-              }))}
-              onChange={modelId => {
-                saveGlobalConfig(current => ({
-                  ...current,
-                  connectedProviders: {
-                    ...(current.connectedProviders || {}),
-                    'custom-openai': {
-                      baseUrl: st.baseUrl || '',
-                      defaultModel: modelId,
-                      ...(st.apiKey ? { apiKey: st.apiKey } : {}),
-                      connectedAt: new Date().toISOString(),
-                    },
+          <SearchableModelSelect
+            providerLabel="OpenAI-compatible"
+            baseUrl={st.baseUrl}
+            models={st.models}
+            onSelect={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  'custom-openai': {
+                    baseUrl: st.baseUrl || '',
+                    defaultModel: modelId,
+                    ...(st.apiKey ? { apiKey: st.apiKey } : {}),
+                    connectedAt: new Date().toISOString(),
                   },
-                  activeProvider: 'custom-openai',
-                  openaiCustomModelsCache: st.models.map(id => ({ id })),
-                }))
-                onChangeAPIKey()
-                setStep({ type: 'success', providerId: 'custom-openai' })
-              }}
-              onCancel={handleCancel}
-            />
-          </Box>
+                },
+                activeProvider: 'custom-openai',
+                openaiCustomModelsCache: st.models.map(id => ({ id })),
+              }))
+              onChangeAPIKey()
+              setStep({ type: 'success', providerId: 'custom-openai' })
+            }}
+            onCancel={handleCancel}
+          />
         </Dialog>
       )
     }
@@ -1162,35 +1367,30 @@ function ConnectDialog({
       const st = step
       return (
         <Dialog title="Custom Anthropic-compatible API" onCancel={handleCancel}>
-          <Box flexDirection="column" gap={1}>
-            <Text dimColor>Anthropic-compatible · {st.baseUrl}</Text>
-            <Text bold>Select a model</Text>
-            <Select
-              options={st.models.map(m => ({
-                label: <Text>{m}</Text>,
-                value: m,
-              }))}
-              onChange={modelId => {
-                saveGlobalConfig(current => ({
-                  ...current,
-                  connectedProviders: {
-                    ...(current.connectedProviders || {}),
-                    'custom-anthropic': {
-                      baseUrl: st.baseUrl || '',
-                      defaultModel: modelId,
-                      ...(st.apiKey ? { apiKey: st.apiKey } : {}),
-                      connectedAt: new Date().toISOString(),
-                    },
+          <SearchableModelSelect
+            providerLabel="Anthropic-compatible"
+            baseUrl={st.baseUrl}
+            models={st.models}
+            onSelect={modelId => {
+              saveGlobalConfig(current => ({
+                ...current,
+                connectedProviders: {
+                  ...(current.connectedProviders || {}),
+                  'custom-anthropic': {
+                    baseUrl: st.baseUrl || '',
+                    defaultModel: modelId,
+                    ...(st.apiKey ? { apiKey: st.apiKey } : {}),
+                    connectedAt: new Date().toISOString(),
                   },
-                  activeProvider: 'custom-anthropic',
-                  anthropicCustomModelsCache: st.models.map(id => ({ id })),
-                }))
-                onChangeAPIKey()
-                setStep({ type: 'success', providerId: 'custom-anthropic' })
-              }}
-              onCancel={handleCancel}
-            />
-          </Box>
+                },
+                activeProvider: 'custom-anthropic',
+                anthropicCustomModelsCache: st.models.map(id => ({ id })),
+              }))
+              onChangeAPIKey()
+              setStep({ type: 'success', providerId: 'custom-anthropic' })
+            }}
+            onCancel={handleCancel}
+          />
         </Dialog>
       )
     }

@@ -13,11 +13,11 @@ import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUs
 import { getModelOptions } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
-import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Pane } from './design-system/Pane.js';
 import { effortLevelToSymbol } from './EffortIndicator.js';
+import { SearchableModelOptionSelect } from './SearchableModelOptionSelect.js';
 export type Props = {
   initial: string | null;
   sessionModel?: ModelSetting;
@@ -132,8 +132,6 @@ export function ModelPicker(t0) {
     t6 = $[16];
   }
   const initialFocusValue = t6;
-  const visibleCount = Math.min(10, selectOptions.length);
-  const hiddenCount = Math.max(0, selectOptions.length - visibleCount);
   let t7;
   if ($[17] !== focusedValue || $[18] !== selectOptions) {
     t7 = selectOptions.find(opt_1 => opt_1.value === focusedValue)?.label;
@@ -293,32 +291,22 @@ export function ModelPicker(t0) {
   }
   const t20 = onCancel ?? _temp4;
   let t21;
-  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== initialValue || $[53] !== selectOptions || $[54] !== t20 || $[55] !== visibleCount) {
-    t21 = <Box flexDirection="column"><Select defaultValue={initialValue} defaultFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} visibleOptionCount={visibleCount} /></Box>;
+  if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== initialValue || $[53] !== selectOptions || $[54] !== t20) {
+    t21 = <Box flexDirection="column"><SearchableModelOptionSelect selectedValue={initialValue} initialFocusValue={initialFocusValue} options={selectOptions} onChange={handleSelect} onFocus={handleFocus} onCancel={t20} getSearchText={getModelOptionSearchText} /></Box>;
     $[49] = handleFocus;
     $[50] = handleSelect;
     $[51] = initialFocusValue;
     $[52] = initialValue;
     $[53] = selectOptions;
     $[54] = t20;
-    $[55] = visibleCount;
     $[56] = t21;
   } else {
     t21 = $[56];
   }
-  let t22;
-  if ($[57] !== hiddenCount) {
-    t22 = hiddenCount > 0 && <Box paddingLeft={3}><Text dimColor={true}>and {hiddenCount} more…</Text></Box>;
-    $[57] = hiddenCount;
-    $[58] = t22;
-  } else {
-    t22 = $[58];
-  }
   let t23;
-  if ($[59] !== t21 || $[60] !== t22) {
-    t23 = <Box flexDirection="column" marginBottom={1}>{t21}{t22}</Box>;
+  if ($[59] !== t21) {
+    t23 = <Box flexDirection="column" marginBottom={1}>{t21}</Box>;
     $[59] = t21;
-    $[60] = t22;
     $[61] = t23;
   } else {
     t23 = $[61];
@@ -391,6 +379,9 @@ function _temp3(opt_0) {
     ...opt_0,
     value: opt_0.value === null ? NO_PREFERENCE : opt_0.value
   };
+}
+function getModelOptionSearchText(opt: { label: unknown; description?: string; value: string }): string {
+  return `${String(opt.label)} ${opt.description ?? ''} ${opt.value}`
 }
 function _temp2(s_0) {
   return s_0.effortValue;

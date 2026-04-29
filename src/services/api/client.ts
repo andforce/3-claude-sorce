@@ -322,6 +322,19 @@ export async function getAnthropicClient({
 
   const globalCfg = getGlobalConfig()
 
+  // OpenRouter exposes an Anthropic-compatible Messages API under /api.
+  const openRouterProvider = globalCfg.connectedProviders?.openrouter
+  if (globalCfg.activeProvider === 'openrouter' && openRouterProvider?.apiKey) {
+    const openRouterConfig: ConstructorParameters<typeof Anthropic>[0] = {
+      apiKey: null,
+      authToken: openRouterProvider.apiKey,
+      baseURL: openRouterProvider.baseUrl || 'https://openrouter.ai/api',
+      ...ARGS,
+      ...(isDebugToStdErr() && { logger: createStderrLogger() }),
+    }
+    return new Anthropic(openRouterConfig)
+  }
+
   // Custom Anthropic-compatible API (self-hosted / LAN; API key optional)
   const customAnthropicProvider = globalCfg.connectedProviders?.['custom-anthropic']
   if (globalCfg.activeProvider === 'custom-anthropic' && customAnthropicProvider?.baseUrl) {

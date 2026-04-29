@@ -187,6 +187,15 @@ function getActiveProviderDefaultModelSetting(): ModelName | undefined {
       }
       return getCopilotModelsCached()[0]?.id
     }
+    case 'openrouter': {
+      const provider = config.connectedProviders?.openrouter
+      const modelId =
+        provider?.defaultModel ?? config.openrouterModelsCache?.[0]?.id
+      if (!provider?.apiKey || !modelId) {
+        return undefined
+      }
+      return modelId
+    }
     case 'custom-openai': {
       const provider = config.connectedProviders?.['custom-openai']
       const modelId =

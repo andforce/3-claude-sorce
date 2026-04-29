@@ -30,7 +30,7 @@ import { resetUserCache } from '../../utils/user.js'
 
 const PROVIDER_LABELS: Record<string, string> = {
   'github-copilot': 'GitHub Copilot',
-  openrouter: 'OpenRouter',
+  openrouter: 'OpenRouter Anthropic-compatible API',
   'custom-openai': 'Custom OpenAI-compatible API',
   'custom-anthropic': 'Custom Anthropic-compatible API',
 }
@@ -247,6 +247,9 @@ function DisconnectDialog({
               : current.activeProvider,
           ...(step.provider.providerId === 'github-copilot'
             ? { copilotModelsCache: undefined }
+            : {}),
+          ...(step.provider.providerId === 'openrouter'
+            ? { openrouterModelsCache: undefined }
             : {}),
           ...(step.provider.providerId === 'custom-openai'
             ? { openaiCustomModelsCache: undefined }

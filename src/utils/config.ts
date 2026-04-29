@@ -605,6 +605,8 @@ export type GlobalConfig = {
 
   // Cached Kimi model list from /v1/models
   kimiModelsCache?: Array<{ id: string; owned_by?: string }>
+  /** From GET /v1/models after OpenRouter Anthropic-compatible login */
+  openrouterModelsCache?: Array<{ id: string }>
   /** From GET /v1/models after Custom OpenAI-compatible login */
   openaiCustomModelsCache?: Array<{ id: string }>
 

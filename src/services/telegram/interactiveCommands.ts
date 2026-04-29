@@ -86,7 +86,7 @@ function buildConnectKeyboard(): TelegramInlineKeyboardMarkup {
   return createKeyboard([
     [
       { text: 'GitHub Copilot', callback_data: `${CONNECT_PREFIX}:provider:github-copilot` },
-      { text: 'OpenRouter', callback_data: `${CONNECT_PREFIX}:provider:openrouter` },
+      { text: 'OpenRouter Anthropic', callback_data: `${CONNECT_PREFIX}:provider:openrouter` },
     ],
     [
       { text: 'Custom OpenAI', callback_data: `${CONNECT_PREFIX}:provider:custom-openai` },
@@ -330,12 +330,13 @@ async function handleConnectTextInput(
           ...(current.connectedProviders || {}),
           openrouter: {
             apiKey: text.trim(),
+            baseUrl: 'https://openrouter.ai/api',
             connectedAt: new Date().toISOString(),
           },
         },
         activeProvider: current.activeProvider || 'openrouter',
       }))
-      await telegramService.sendMessage(chatId, 'OpenRouter 已连接成功。')
+      await telegramService.sendMessage(chatId, 'OpenRouter Anthropic-compatible API 已连接成功。')
       return true
     }
     case 'custom-openai-base': {
