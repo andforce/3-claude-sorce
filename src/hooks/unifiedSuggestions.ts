@@ -13,6 +13,7 @@ type FileSuggestionSource = {
   type: 'file'
   displayText: string
   description?: string
+  metadata?: unknown
   path: string
   filename: string
   score?: number
@@ -50,6 +51,7 @@ function createSuggestionFromSource(source: SuggestionSource): SuggestionItem {
         id: `file-${source.path}`,
         displayText: source.displayText,
         description: source.description,
+        metadata: source.metadata,
       }
     case 'mcp_resource':
       return {
@@ -128,6 +130,7 @@ export async function generateUnifiedSuggestions(
       type: 'file' as const,
       displayText: suggestion.displayText,
       description: suggestion.description,
+      metadata: suggestion.metadata,
       path: suggestion.displayText, // Use displayText as path for files
       filename: basename(suggestion.displayText),
       score: (suggestion.metadata as { score?: number } | undefined)?.score,

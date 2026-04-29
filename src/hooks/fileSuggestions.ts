@@ -600,14 +600,24 @@ export function findLongestCommonPrefix(suggestions: SuggestionItem[]): string {
 /**
  * Creates a file suggestion item
  */
+function getFileSuggestionType(filePath: string): 'directory' | 'file' {
+  return filePath.endsWith(path.sep) ||
+    filePath.endsWith('/') ||
+    filePath.endsWith('\\')
+    ? 'directory'
+    : 'file'
+}
+
 function createFileSuggestionItem(
   filePath: string,
   score?: number,
 ): SuggestionItem {
+  const type = getFileSuggestionType(filePath)
+
   return {
     id: `file-${filePath}`,
     displayText: filePath,
-    metadata: score !== undefined ? { score } : undefined,
+    metadata: score !== undefined ? { type, score } : { type },
   }
 }
 
