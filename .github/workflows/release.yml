@@ -67,13 +67,13 @@ jobs:
       - name: Rename output
         run: |
           mkdir -p release
-          cp dist/cli.js "release/claude-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
+          cp dist/cli.js "release/openclaude-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: claude-${{ matrix.platform }}
-          path: release/claude-*
+          name: openclaude-${{ matrix.platform }}
+          path: release/openclaude-*
           retention-days: 1
 
   release:
@@ -87,7 +87,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release
-          pattern: claude-*
+          pattern: openclaude-*
           merge-multiple: true
 
       - name: Generate checksums and manifest
@@ -97,14 +97,14 @@ jobs:
           cd release
 
           # Generate checksums.txt
-          sha256sum claude-* > checksums.txt
+          sha256sum openclaude-* > checksums.txt
 
           # Generate manifest.json
           echo '{"version": "'$VERSION'", "platforms": {' > manifest.json
 
           first=true
-          for file in claude-*; do
-            platform=$(echo "$file" | sed "s/claude-$VERSION-//")
+          for file in openclaude-*; do
+            platform=$(echo "$file" | sed "s/openclaude-$VERSION-//")
             checksum=$(sha256sum "$file" | cut -d' ' -f1)
 
             if [ "$first" = true ]; then
