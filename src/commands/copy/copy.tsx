@@ -20,7 +20,7 @@ import type { AssistantMessage, Message } from '../../types/message.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { extractTextContent, stripPromptXMLTags } from '../../utils/messages.js';
 import { countCharInString } from '../../utils/stringUtils.js';
-const COPY_DIR = join(tmpdir(), 'claude');
+const COPY_DIR = join(tmpdir(), 'openclaude');
 const RESPONSE_FILENAME = 'response.md';
 const MAX_LOOKBACK = 20;
 type CodeBlock = {

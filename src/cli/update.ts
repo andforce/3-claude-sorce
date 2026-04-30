@@ -64,7 +64,7 @@ export async function update() {
       logForDebugging(`update: Warning detected: ${warning.issue}`)
 
       // Don't skip PATH warnings - they're always relevant
-      // The user needs to know that 'which claude' points elsewhere
+      // The user needs to know that 'which openclaude' points elsewhere
       logForDebugging(`update: Showing warning: ${warning.issue}`)
 
       writeToStdout(chalk.yellow(`Warning: ${warning.issue}\n`))
@@ -252,7 +252,7 @@ export async function update() {
     } catch (error) {
       process.stderr.write('Error: Failed to install native update\n')
       process.stderr.write(String(error) + '\n')
-      process.stderr.write('Try running "claude doctor" for diagnostics\n')
+      process.stderr.write('Try running "openclaude doctor" for diagnostics\n')
       await gracefulShutdown(1)
     }
   }

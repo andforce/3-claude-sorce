@@ -1,16 +1,16 @@
 export const TEAM_LEAD_NAME = 'team-lead'
-export const SWARM_SESSION_NAME = 'claude-swarm'
+export const SWARM_SESSION_NAME = 'openclaude-swarm'
 export const SWARM_VIEW_WINDOW_NAME = 'swarm-view'
 export const TMUX_COMMAND = 'tmux'
-export const HIDDEN_SESSION_NAME = 'claude-hidden'
+export const HIDDEN_SESSION_NAME = 'openclaude-hidden'
 
 /**
  * Gets the socket name for external swarm sessions (when user is not in tmux).
  * Uses a separate socket to isolate swarm operations from user's tmux sessions.
- * Includes PID to ensure multiple Claude instances don't conflict.
+ * Includes PID to ensure multiple OpenClaude instances don't conflict.
  */
 export function getSwarmSocketName(): string {
-  return `claude-swarm-${process.pid}`
+  return `openclaude-swarm-${process.pid}`
 }
 
 /**

@@ -302,26 +302,26 @@ export function isScratchpadEnabled(): boolean {
 }
 
 /**
- * Returns the user-specific Claude temp directory name.
- * On Unix: 'claude-{uid}' to prevent multi-user permission conflicts
- * On Windows: 'claude' (tmpdir() is already per-user)
+ * Returns the user-specific OpenClaude temp directory name.
+ * On Unix: 'openclaude-{uid}' to prevent multi-user permission conflicts
+ * On Windows: 'openclaude' (tmpdir() is already per-user)
  */
 export function getClaudeTempDirName(): string {
   if (getPlatform() === 'windows') {
-    return 'claude'
+    return 'openclaude'
   }
   // Use UID to create per-user directories, preventing permission conflicts
   // when multiple users share the same /tmp directory
   const uid = process.getuid?.() ?? 0
-  return `claude-${uid}`
+  return `openclaude-${uid}`
 }
 
 /**
- * Returns the Claude temp directory path with symlinks resolved.
+ * Returns the OpenClaude temp directory path with symlinks resolved.
  * Uses TMPDIR env var if set, otherwise:
- * - On Unix: /tmp/claude-{uid}/ (resolved to /private/tmp/claude-{uid}/ on macOS)
- * - On Windows: {tmpdir}/claude/ (e.g., C:\Users\{user}\AppData\Local\Temp\claude\)
- * This is a per-user temporary directory used by Claude Code for all temp files.
+ * - On Unix: /tmp/openclaude-{uid}/ (resolved to /private/tmp/openclaude-{uid}/ on macOS)
+ * - On Windows: {tmpdir}/openclaude/ (e.g., C:\Users\{user}\AppData\Local\Temp\openclaude\)
+ * This is a per-user temporary directory used by OpenClaude for all temp files.
  *
  * NOTE: We resolve symlinks to ensure this path matches the resolved paths used
  * in permission checks. On macOS, /tmp is a symlink to /private/tmp, so without

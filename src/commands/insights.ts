@@ -105,7 +105,7 @@ const collectFromRemoteHost: (
         const result = { copied: 0, skipped: 0 }
 
         // Create temp directory
-        const tempDir = await mkdtemp(join(tmpdir(), 'claude-hs-'))
+        const tempDir = await mkdtemp(join(tmpdir(), 'openclaude-hs-'))
 
         try {
           // SCP the projects folder
@@ -1395,7 +1395,7 @@ Include 3 friction categories with 2 examples each.`,
 
 ## CC FEATURES REFERENCE (pick from these for features_to_try):
 1. **MCP Servers**: Connect Claude to external tools, databases, and APIs via Model Context Protocol.
-   - How to use: Run \`claude mcp add <server-name> -- <command>\`
+   - How to use: Run \`openclaude mcp add <server-name> -- <command>\`
    - Good for: database queries, Slack integration, GitHub issue lookup, connecting to internal APIs
 
 2. **Custom Skills**: Reusable prompts you define as markdown files that run with a single /command.
@@ -1407,7 +1407,7 @@ Include 3 friction categories with 2 examples each.`,
    - Good for: auto-formatting code, running type checks, enforcing conventions
 
 4. **Headless Mode**: Run Claude non-interactively from scripts and CI/CD.
-   - How to use: \`claude -p "fix lint errors" --allowedTools "Edit,Read,Bash"\`
+   - How to use: \`openclaude -p "fix lint errors" --allowedTools "Edit,Read,Bash"\`
    - Good for: CI/CD integration, batch code fixes, automated reviews
 
 5. **Task Agents**: Claude spawns focused sub-agents for complex exploration or parallel work.

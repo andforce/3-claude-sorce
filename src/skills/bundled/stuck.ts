@@ -9,7 +9,7 @@ The user thinks another Claude Code session on this machine is frozen, stuck, or
 
 ## What to look for
 
-Scan for other Claude Code processes (excluding the current one — PID is in \`process.pid\` but for shell commands just exclude the PID you see running this prompt). Process names are typically \`claude\` (installed) or \`cli\` (native dev build).
+Scan for other OpenClaude processes (excluding the current one — PID is in \`process.pid\` but for shell commands just exclude the PID you see running this prompt). Process names are typically \`openclaude\` (installed) or \`cli\` (native dev build).
 
 Signs of a stuck session:
 - **High CPU (≥90%) sustained** — likely an infinite loop. Sample twice, 1-2s apart, to confirm it's not a transient spike.
@@ -25,7 +25,7 @@ Signs of a stuck session:
    \`\`\`
    ps -axo pid=,pcpu=,rss=,etime=,state=,comm=,command= | grep -E '(claude|cli)' | grep -v grep
    \`\`\`
-   Filter to rows where \`comm\` is \`claude\` or (\`cli\` AND the command path contains "claude").
+   Filter to rows where \`comm\` is \`openclaude\` or (\`cli\` AND the command path contains "openclaude").
 
 2. **For anything suspicious**, gather more context:
    - Child processes: \`pgrep -lP <pid>\`

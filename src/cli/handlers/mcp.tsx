@@ -1,6 +1,6 @@
 /**
  * MCP subcommand handlers — extracted from main.tsx for lazy loading.
- * These are dynamically imported only when the corresponding `claude mcp *` command runs.
+ * These are dynamically imported only when the corresponding `openclaude mcp *` command runs.
  */
 
 import { stat } from 'fs/promises';
@@ -148,7 +148,7 @@ export async function mcpListHandler(): Promise<void> {
   } = await getAllMcpConfigs();
   if (Object.keys(configs).length === 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('No MCP servers configured. Use `claude mcp add` to add a server.');
+    console.log('No MCP servers configured. Use `openclaude mcp add` to add a server.');
   } else {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log('Checking MCP server health...\n');

@@ -1,21 +1,21 @@
 /**
  * TMUX SOCKET ISOLATION
  * =====================
- * This module manages an isolated tmux socket for Claude's operations.
+ * This module manages an isolated tmux socket for OpenClaude's operations.
  *
  * WHY THIS EXISTS:
- * Without isolation, Claude could accidentally affect the user's tmux sessions.
+ * Without isolation, OpenClaude could accidentally affect the user's tmux sessions.
  * For example, running `tmux kill-session` via the Bash tool would kill the
- * user's current session if they started Claude from within tmux.
+ * user's current session if they started OpenClaude from within tmux.
  *
  * HOW IT WORKS:
- * 1. Claude creates its own tmux socket: `claude-<PID>` (e.g., `claude-12345`)
+ * 1. OpenClaude creates its own tmux socket: `openclaude-<PID>` (e.g., `openclaude-12345`)
  * 2. ALL Tmux tool commands use this socket via the `-L` flag
  * 3. ALL Bash tool commands inherit TMUX env var pointing to this socket
  *    (set in Shell.ts via getClaudeTmuxEnv())
  *
- * This means ANY tmux command run through Claude - whether via the Tmux tool
- * directly or via Bash - will operate on Claude's isolated socket, NOT the
+ * This means ANY tmux command run through OpenClaude - whether via the Tmux tool
+ * directly or via Bash - will operate on OpenClaude's isolated socket, NOT the
  * user's tmux session.
  *
  * IMPORTANT: The user's original TMUX env var is NOT used. After socket
@@ -33,7 +33,7 @@ import { getPlatform } from './platform.js'
 
 // Constants for tmux socket management
 const TMUX_COMMAND = 'tmux'
-const CLAUDE_SOCKET_PREFIX = 'claude'
+const CLAUDE_SOCKET_PREFIX = 'openclaude'
 
 /**
  * Executes a tmux command, routing through WSL on Windows.
@@ -86,7 +86,7 @@ let tmuxToolUsed = false
 
 /**
  * Gets the socket name for Claude's isolated tmux session.
- * Format: claude-<PID>
+ * Format: openclaude-<PID>
  */
 export function getClaudeSocketName(): string {
   if (!socketName) {
@@ -127,7 +127,7 @@ export function isSocketInitialized(): boolean {
  * the Bash tool will operate on Claude's socket, NOT the user's session.
  *
  * Format: "socket_path,server_pid,pane_index" (matches tmux's TMUX env var)
- * Example: "/tmp/tmux-501/claude-12345,54321,0"
+ * Example: "/tmp/tmux-501/openclaude-12345,54321,0"
  *
  * Returns null if socket is not yet initialized.
  * When null, Shell.ts does not override TMUX, preserving user's environment.

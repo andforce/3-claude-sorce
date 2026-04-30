@@ -83,13 +83,13 @@ export async function setupShellCompletion(theme: ThemeName): Promise<string> {
     await mkdir(dirname(shell.cacheFile), { recursive: true })
   } catch (e: unknown) {
     logError(e)
-    return `${EOL}${color('warning', theme)(`Could not write ${shell.name} completion cache`)}${EOL}${chalk.dim(`Run manually: claude completion ${shell.shellFlag} > ${shell.cacheFile}`)}${EOL}`
+    return `${EOL}${color('warning', theme)(`Could not write ${shell.name} completion cache`)}${EOL}${chalk.dim(`Run manually: openclaude completion ${shell.shellFlag} > ${shell.cacheFile}`)}${EOL}`
   }
 
   // Generate the completion script by writing directly to the cache file.
   // Using --output avoids piping through stdout where process.exit() can
   // truncate output before the pipe buffer drains.
-  const claudeBin = process.argv[1] || 'claude'
+  const claudeBin = process.argv[1] || 'openclaude'
   const result = await execFileNoThrow(claudeBin, [
     'completion',
     shell.shellFlag,
@@ -97,7 +97,7 @@ export async function setupShellCompletion(theme: ThemeName): Promise<string> {
     shell.cacheFile,
   ])
   if (result.code !== 0) {
-    return `${EOL}${color('warning', theme)(`Could not generate ${shell.name} shell completions`)}${EOL}${chalk.dim(`Run manually: claude completion ${shell.shellFlag} > ${shell.cacheFile}`)}${EOL}`
+    return `${EOL}${color('warning', theme)(`Could not generate ${shell.name} shell completions`)}${EOL}${chalk.dim(`Run manually: openclaude completion ${shell.shellFlag} > ${shell.cacheFile}`)}${EOL}`
   }
 
   // Check if rc file already sources completions
@@ -105,7 +105,7 @@ export async function setupShellCompletion(theme: ThemeName): Promise<string> {
   try {
     existing = await readFile(shell.rcFile, { encoding: 'utf-8' })
     if (
-      existing.includes('claude completion') ||
+      existing.includes('openclaude completion') ||
       existing.includes(shell.cacheFile)
     ) {
       return `${EOL}${color('success', theme)(`Shell completions updated for ${shell.name}`)}${EOL}${chalk.dim(`See ${formatPathLink(shell.rcFile)}`)}${EOL}`
@@ -135,7 +135,7 @@ export async function setupShellCompletion(theme: ThemeName): Promise<string> {
 
 /**
  * Regenerate cached shell completion scripts in ~/.openclaude/.
- * Called after `claude update` so completions stay in sync with the new binary.
+ * Called after `openclaude update` so completions stay in sync with the new binary.
  */
 export async function regenerateCompletionCache(): Promise<void> {
   const shell = detectShell()
@@ -145,7 +145,7 @@ export async function regenerateCompletionCache(): Promise<void> {
 
   logForDebugging(`update: Regenerating ${shell.name} completion cache`)
 
-  const claudeBin = process.argv[1] || 'claude'
+  const claudeBin = process.argv[1] || 'openclaude'
   const result = await execFileNoThrow(claudeBin, [
     'completion',
     shell.shellFlag,
