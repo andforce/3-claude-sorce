@@ -1496,7 +1496,7 @@ export const InstalledPluginsFileSchemaV1 = lazySchema(() =>
  *
  * Plugins can be installed at different scopes:
  * - managed: Enterprise/system-wide (read-only, platform-specific paths)
- * - user: User's global settings (~/.claude/settings.json)
+ * - user: User's global settings (~/.openclaude/settings.json)
  * - project: Shared project settings ($project/.claude/settings.json)
  * - local: Personal project overrides ($project/.claude/settings.local.json)
  *

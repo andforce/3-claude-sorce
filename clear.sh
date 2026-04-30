@@ -21,12 +21,13 @@ for arg in "$@"; do
   esac
 done
 
-echo "清理 Claude 应用、CLI 配置/缓存、native installer 版本文件、npm 残留，以及 macOS Keychain 登录信息（危险操作）"
+echo "清理 OpenClaude/Claude 应用、CLI 配置/缓存、native installer 版本文件、npm 残留，以及 macOS Keychain 登录信息（危险操作）"
 
 HOME_DIR="${HOME:-$PWD}"
 CURRENT_USER="${USER:-$(id -un)}"
-DEFAULT_CONFIG_HOME="${HOME_DIR}/.claude"
-CONFIG_HOME="${CLAUDE_CONFIG_DIR:-${DEFAULT_CONFIG_HOME}}"
+DEFAULT_CONFIG_HOME="${HOME_DIR}/.openclaude"
+CONFIG_HOME="${OPENCLAUDE_CONFIG_DIR:-${DEFAULT_CONFIG_HOME}}"
+CUSTOM_CONFIG_HOME="${OPENCLAUDE_CONFIG_DIR:-}"
 TMP_BASE="${TMPDIR:-/tmp}"
 TMP_BASE="${TMP_BASE%/}"
 XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME_DIR}/.local/share}"
@@ -81,8 +82,11 @@ cleanup_shell_alias_in_file() {
 
   : > "$temp_file"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+claude[[:space:]]*= ]] &&
-       [[ "$line" == *"${HOME_DIR}/.claude/local/claude"* || "$line" == *"~/.claude/local/claude"* ]]; then
+    if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+(claude|openclaude)[[:space:]]*= ]] &&
+       [[ "$line" == *"${HOME_DIR}/.openclaude/local/claude"* ||
+          "$line" == *"~/.openclaude/local/claude"* ||
+          "$line" == *"${HOME_DIR}/.openclaude/local/openclaude"* ||
+          "$line" == *"~/.openclaude/local/openclaude"* ]]; then
       removed=true
       continue
     fi
@@ -100,56 +104,66 @@ cleanup_shell_alias_in_file() {
 # 固定要清理的路径（有的可能不存在）
 paths=(
   "/Applications/Claude.app"
+  "/Applications/OpenClaude.app"
   "${DEFAULT_CONFIG_HOME}"
   "$HOME_DIR/Library/Application Support/Claude"
+  "$HOME_DIR/Library/Application Support/OpenClaude"
   "$HOME_DIR/Library/Caches/com.anthropic.claude"
+  "$HOME_DIR/Library/Caches/com.openclaude.openclaude"
   "$HOME_DIR/Library/Caches/Claude"
+  "$HOME_DIR/Library/Caches/OpenClaude"
   "$HOME_DIR/Library/Application Support/claude-cli-nodejs"
+  "$HOME_DIR/Library/Application Support/openclaude-cli-nodejs"
   "$HOME_DIR/Library/Preferences/claude-cli-nodejs"
+  "$HOME_DIR/Library/Preferences/openclaude-cli-nodejs"
   "$HOME_DIR/Library/Caches/claude-cli-nodejs"
+  "$HOME_DIR/Library/Caches/openclaude-cli-nodejs"
   "$HOME_DIR/Library/Logs/claude-cli-nodejs"
+  "$HOME_DIR/Library/Logs/openclaude-cli-nodejs"
   "$HOME_DIR/Library/Saved Application State/com.anthropic.claude.savedState"
+  "$HOME_DIR/Library/Saved Application State/com.openclaude.openclaude.savedState"
   "$HOME_DIR/Library/Preferences/com.anthropic.claude.plist"
+  "$HOME_DIR/Library/Preferences/com.openclaude.openclaude.plist"
   "$HOME_DIR/Library/Logs/Claude"
+  "$HOME_DIR/Library/Logs/OpenClaude"
   "${TMP_BASE}/claude-cli-nodejs"
+  "${TMP_BASE}/openclaude-cli-nodejs"
   "${USER_BIN_DIR}/claude"
+  "${USER_BIN_DIR}/openclaude"
   "${XDG_DATA_HOME}/claude"
+  "${XDG_DATA_HOME}/openclaude"
   "${XDG_CACHE_HOME}/claude"
+  "${XDG_CACHE_HOME}/openclaude"
   "${XDG_STATE_HOME}/claude"
+  "${XDG_STATE_HOME}/openclaude"
   "/usr/local/bin/claude"
+  "/usr/local/bin/openclaude"
   "/opt/homebrew/bin/claude"
+  "/opt/homebrew/bin/openclaude"
 )
 
-# 如果使用了自定义 CLAUDE_CONFIG_DIR，也一并清理对应目录
+# 如果使用了自定义 OPENCLAUDE_CONFIG_DIR，也一并清理对应目录
 if [[ "${CONFIG_HOME}" != "${DEFAULT_CONFIG_HOME}" ]]; then
   paths+=( "${CONFIG_HOME}" )
 fi
 
 # 全局配置文件会随 OAuth 环境切换产生不同后缀
-config_roots=( "${HOME_DIR}" )
-if [[ "${CONFIG_HOME}" != "${HOME_DIR}" ]]; then
-  config_roots+=( "${CONFIG_HOME}" )
-fi
+config_roots=( "${CONFIG_HOME}" )
 
 for root in "${config_roots[@]}"; do
   for oauth_suffix in "${oauth_suffixes[@]}"; do
-    paths+=( "${root}/.claude${oauth_suffix}.json" )
+    paths+=( "${root}${oauth_suffix}.json" )
+    paths+=( "${root}/.config${oauth_suffix}.json" )
   done
 done
 
-# 兼容旧版全局配置文件
-paths+=( "${CONFIG_HOME}/.config.json" )
-
 # 查找各配置根目录下的配置备份文件
 backup_files=()
-backup_search_roots=( "${HOME_DIR}" )
-if [[ "${CONFIG_HOME}" != "${HOME_DIR}" ]]; then
-  backup_search_roots+=( "${CONFIG_HOME}" )
-fi
+backup_search_roots=( "${CONFIG_HOME}" )
 
 backup_patterns=(".config.json.backup*")
 for oauth_suffix in "${oauth_suffixes[@]}"; do
-  backup_patterns+=( ".claude${oauth_suffix}.json.backup*" )
+  backup_patterns+=( ".config${oauth_suffix}.json.backup*" )
 done
 
 for search_root in "${backup_search_roots[@]}"; do
@@ -173,31 +187,35 @@ if command -v npm >/dev/null 2>&1; then
       paths+=( "${npm_prefix}/bin/claude" )
       paths+=( "${npm_prefix}/lib/node_modules/@anthropic-ai/claude-code" )
       paths+=( "${npm_prefix}/lib/node_modules/@anthropic-ai/Codex" )
+      paths+=( "${npm_prefix}/lib/node_modules/openclaude" )
       paths+=( "${npm_prefix}/node_modules/@anthropic-ai/claude-code" )
       paths+=( "${npm_prefix}/node_modules/@anthropic-ai/Codex" )
+      paths+=( "${npm_prefix}/node_modules/openclaude" )
     fi
   fi
 fi
 
-# Keychain 中 Claude Code 相关的服务名。
-# macOS 默认 OAuth 凭据保存在 "Claude Code-credentials"。
+# Keychain 中 OpenClaude 相关的服务名。
+# macOS 默认 OAuth 凭据保存在 "OpenClaude-credentials"。
 keychain_services=()
 
 for oauth_suffix in "${oauth_suffixes[@]}"; do
   for service_suffix in "${service_suffixes[@]}"; do
+    keychain_services+=( "OpenClaude${oauth_suffix}${service_suffix}" )
     keychain_services+=( "Claude Code${oauth_suffix}${service_suffix}" )
   done
 done
 
-if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
-  if dir_hash="$(sha256_short "${CLAUDE_CONFIG_DIR}")"; then
+if [[ -n "${CUSTOM_CONFIG_HOME}" ]]; then
+  if dir_hash="$(sha256_short "${CUSTOM_CONFIG_HOME}")"; then
     for oauth_suffix in "${oauth_suffixes[@]}"; do
       for service_suffix in "${service_suffixes[@]}"; do
+        keychain_services+=( "OpenClaude${oauth_suffix}${service_suffix}-${dir_hash}" )
         keychain_services+=( "Claude Code${oauth_suffix}${service_suffix}-${dir_hash}" )
       done
     done
   else
-    echo "警告：无法计算 CLAUDE_CONFIG_DIR 对应的 Keychain hash，将只清理默认服务名。"
+    echo "警告：无法计算配置目录对应的 Keychain hash，将只清理默认服务名。"
   fi
 fi
 
@@ -260,7 +278,7 @@ done
 echo
 echo "开始清理 shell alias..."
 for shell_file in "${shell_config_files[@]}"; do
-  cleanup_shell_alias_in_file "$shell_file" "${TMP_BASE}/claude-clear-alias.$$.$(basename "$shell_file").tmp"
+  cleanup_shell_alias_in_file "$shell_file" "${TMP_BASE}/openclaude-clear-alias.$$.$(basename "$shell_file").tmp"
 done
 
 echo

@@ -7,7 +7,7 @@ TARGET="${1:-}"  # Optional target parameter (version)
 
 # GitHub repository configuration
 GITHUB_REPO="andforce/Openclaude"
-DOWNLOAD_DIR="$HOME/.claude/downloads"
+DOWNLOAD_DIR="$HOME/.openclaude/downloads"
 INSTALL_DIR="$HOME/.local/bin"
 
 # Validate version if provided
@@ -147,7 +147,7 @@ detect_platform() {
 
 # Main installation flow
 main() {
-    echo "Claude Code Installer"
+    echo "OpenClaude Installer"
     echo "===================="
     echo
 
@@ -189,7 +189,7 @@ main() {
     fi
 
     # Download binary
-    BINARY_NAME="claude-${VERSION}-${PLATFORM}"
+    BINARY_NAME="openclaude-${VERSION}-${PLATFORM}"
     DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${BINARY_NAME}"
     TEMP_PATH="${DOWNLOAD_DIR}/${BINARY_NAME}"
 
@@ -219,7 +219,7 @@ main() {
     chmod +x "$TEMP_PATH"
 
     # Install
-    INSTALL_PATH="${INSTALL_DIR}/claude"
+    INSTALL_PATH="${INSTALL_DIR}/openclaude"
 
     echo "Installing to ${INSTALL_PATH}..."
     mv -f "$TEMP_PATH" "$INSTALL_PATH"
@@ -242,9 +242,9 @@ main() {
     echo
     echo "Installation complete!"
     echo
-    echo "Claude Code $VERSION has been installed to: $INSTALL_PATH"
+    echo "OpenClaude $VERSION has been installed to: $INSTALL_PATH"
     echo
-    echo "To get started, run: claude --help"
+    echo "To get started, run: openclaude --help"
     echo
 }
 
