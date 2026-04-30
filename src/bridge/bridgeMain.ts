@@ -1133,7 +1133,7 @@ export async function runBridgeLoop(
           } else if (config.verbose || process.env.USER_TYPE === 'ant') {
             sessionDebugFile = join(
               tmpdir(),
-              'claude',
+              'openclaude',
               `bridge-session-${safeId}.log`,
             )
           }

@@ -27,11 +27,11 @@ Bridge / Remote Control 不是“把终端转发到网页”的简单功能。
 ### 2.1 fast path 特征
 
 命令：
-- `claude remote-control`
-- `claude rc`
-- `claude remote`
-- `claude sync`
-- `claude bridge`
+- `openclaude remote-control`
+- `openclaude rc`
+- `openclaude remote`
+- `openclaude sync`
+- `openclaude bridge`
 
 这些在 CLI 启动时被提前拦截，不走完整主应用加载流程。
 

@@ -92,8 +92,8 @@ export function expandTilde(path: string): string {
  * Checks if a resolved path is writable according to the sandbox write allowlist.
  * When the sandbox is enabled, the user has explicitly configured which directories
  * are writable. We treat these as additional allowed write directories for path
- * validation purposes, so commands like `echo foo > /tmp/claude/x.txt` don't
- * prompt for permission when /tmp/claude/ is already in the sandbox allowlist.
+ * validation purposes, so commands like `echo foo > /tmp/openclaude/x.txt` don't
+ * prompt for permission when /tmp/openclaude/ is already in the sandbox allowlist.
  *
  * Respects the deny-within-allow list: paths in denyWithinAllow (like
  * .claude/settings.json) are still blocked even if their parent is in allowOnly.
@@ -224,7 +224,7 @@ export function isPathAllowed(
 
   // 3.7. For write/create operations to paths OUTSIDE the working directory,
   // check the sandbox write allowlist. When the sandbox is enabled, users
-  // have explicitly configured writable directories (e.g. /tmp/claude/) —
+  // have explicitly configured writable directories (e.g. /tmp/openclaude/) —
   // treat these as additional allowed write directories so redirects/touch/
   // mkdir don't prompt unnecessarily. Safety checks (step 2) already ran.
   // Paths IN the working directory are intentionally excluded: the sandbox

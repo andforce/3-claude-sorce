@@ -188,7 +188,7 @@ export type Command = {
    └── /voice, /bridge, /ultraplan, /torch 等
 
 3. 技能目录命令 (Skill Dir)
-   └── ~/.claude/skills/ 用户自定义
+   └── ~/.openclaude/skills/ 用户自定义（另兼容读取 ~/.claude/skills/）
 
 4. 插件命令 (Plugins)
    └── 市场下载的插件
@@ -580,7 +580,7 @@ AppState = {
 
 | 层级 | 类型 | 作用 |
 |-----|------|------|
-| GlobalConfig | `~/.claude/...` | 用户级偏好、认证、实验缓存、IDE/通知、宠物 soul |
+| GlobalConfig | `~/.openclaude/...` / `~/.openclaude.json` | 用户级偏好、认证、实验缓存、IDE/通知、宠物 soul |
 | ProjectConfig | 项目级 | 当前仓库允许工具、MCP server、worktree session、trust dialog 等 |
 
 **ProjectConfig 负责**：
