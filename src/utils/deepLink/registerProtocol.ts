@@ -3,7 +3,7 @@
  *
  * Registers the `claude-cli://` custom URI scheme with the OS,
  * so that clicking a `claude-cli://` link in a browser (or any app) will
- * invoke `claude --handle-uri <url>`.
+ * invoke `openclaude --handle-uri <url>`.
  *
  * Platform details:
  *   macOS  — Creates a minimal .app trampoline in ~/Applications with
@@ -43,7 +43,7 @@ const MACOS_SYMLINK_PATH = path.join(
   MACOS_APP_DIR,
   'Contents',
   'MacOS',
-  'claude',
+  'openclaude',
 )
 function linuxDesktopPath(): string {
   return path.join(getXDGDataHome(), 'applications', DESKTOP_FILE_NAME)
@@ -64,8 +64,8 @@ function windowsCommandValue(claudePath: string): string {
  * Register the protocol handler on macOS.
  *
  * Creates a .app bundle where the CFBundleExecutable is a symlink to the
- * already-installed (and signed) `claude` binary. When macOS opens a
- * `claude-cli://` URL, it launches `claude` through this app bundle.
+ * already-installed (and signed) `openclaude` binary. When macOS opens a
+ * `claude-cli://` URL, it launches `openclaude` through this app bundle.
  * Claude then uses the url-handler NAPI module to read the URL from the
  * Apple Event and handles it normally.
  *
@@ -87,7 +87,7 @@ async function registerMacos(claudePath: string): Promise<void> {
 
   await fs.mkdir(path.dirname(MACOS_SYMLINK_PATH), { recursive: true })
 
-  // Info.plist — registers the URL scheme with claude as the executable
+  // Info.plist — registers the URL scheme with openclaude as the executable
   const infoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -97,7 +97,7 @@ async function registerMacos(claudePath: string): Promise<void> {
   <key>CFBundleName</key>
   <string>${APP_NAME}</string>
   <key>CFBundleExecutable</key>
-  <string>claude</string>
+  <string>openclaude</string>
   <key>CFBundleVersion</key>
   <string>1.0</string>
   <key>CFBundlePackageType</key>
@@ -120,7 +120,7 @@ async function registerMacos(claudePath: string): Promise<void> {
 
   await fs.writeFile(path.join(contentsDir, 'Info.plist'), infoPlist)
 
-  // Symlink to the already-signed claude binary — avoids a new executable
+  // Symlink to the already-signed openclaude binary — avoids a new executable
   // that would need signing and endpoint-security allowlisting.
   // Written LAST among the throwing fs calls: isProtocolHandlerCurrent reads
   // this symlink, so it acts as the commit marker. If Info.plist write
@@ -210,7 +210,7 @@ async function registerWindows(claudePath: string): Promise<void> {
 
 /**
  * Register the `claude-cli://` protocol handler with the operating system.
- * After registration, clicking a `claude-cli://` link will invoke claude.
+ * After registration, clicking a `claude-cli://` link will invoke openclaude.
  */
 export async function registerProtocolHandler(
   claudePath?: string,
@@ -233,13 +233,14 @@ export async function registerProtocolHandler(
 }
 
 /**
- * Resolve the claude binary path for protocol registration. Prefers the
- * native installer's stable symlink (~/.local/bin/claude) which survives
+ * Resolve the openclaude binary path for protocol registration. Prefers the
+ * native installer's stable symlink (~/.local/bin/openclaude) which survives
  * auto-updates; falls back to process.execPath when the symlink is absent
  * (dev builds, non-native installs).
  */
 async function resolveClaudePath(): Promise<string> {
-  const binaryName = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const binaryName =
+    process.platform === 'win32' ? 'openclaude.exe' : 'openclaude'
   const stablePath = path.join(getUserBinDir(), binaryName)
   try {
     await fs.realpath(stablePath)
@@ -251,7 +252,7 @@ async function resolveClaudePath(): Promise<string> {
 
 /**
  * Check whether the OS-level protocol handler is already registered AND
- * points at the expected `claude` binary. Reads the registration artifact
+ * points at the expected `openclaude` binary. Reads the registration artifact
  * directly (symlink target, .desktop Exec line, registry value) rather than
  * a cached flag in ~/.openclaude.json, so:
  *   - the check is per-machine (config can sync across machines; OS state can't)

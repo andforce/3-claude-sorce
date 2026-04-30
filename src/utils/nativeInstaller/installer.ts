@@ -109,7 +109,7 @@ export function getPlatform(): string {
 }
 
 export function getBinaryName(platform: string): string {
-  return platform.startsWith('win32') ? 'claude.exe' : 'claude'
+  return platform.startsWith('win32') ? 'openclaude.exe' : 'openclaude'
 }
 
 function getBaseDirectories() {
@@ -118,13 +118,13 @@ function getBaseDirectories() {
 
   return {
     // Data directories (permanent storage)
-    versions: join(getXDGDataHome(), 'claude', 'versions'),
+    versions: join(getXDGDataHome(), 'openclaude', 'versions'),
 
     // Cache directories (can be deleted)
-    staging: join(getXDGCacheHome(), 'claude', 'staging'),
+    staging: join(getXDGCacheHome(), 'openclaude', 'staging'),
 
     // State directories
-    locks: join(getXDGStateHome(), 'claude', 'locks'),
+    locks: join(getXDGStateHome(), 'openclaude', 'locks'),
 
     // User bin
     executable: join(getUserBinDir(), executableName),
@@ -465,7 +465,7 @@ async function performVersionUpdate(
     logForDebugging(`Version ${version} already installed, updating symlink`)
   }
 
-  // Create direct symlink from ~/.local/bin/claude to the version binary
+  // Create direct symlink from ~/.local/bin/openclaude to the version binary
   await removeDirectoryIfEmpty(executablePath)
   await updateSymlink(executablePath, installPath)
 
@@ -845,7 +845,7 @@ export async function checkInstall(
     })
   }
 
-  // Check if claude executable exists and is valid.
+  // Check if openclaude executable exists and is valid.
   // On non-Windows, call readlink directly and route errno — ENOENT means
   // the executable is missing, EINVAL means it exists but isn't a symlink.
   // This avoids an access()→readlink() TOCTOU where deletion between the
@@ -856,7 +856,7 @@ export async function checkInstall(
     // On Windows it's a copied executable, not a symlink
     if (!(await isPossibleClaudeBinary(dirs.executable))) {
       messages.push({
-        message: `installMethod is native, but claude command is missing or invalid at ${dirs.executable}`,
+        message: `installMethod is native, but openclaude command is missing or invalid at ${dirs.executable}`,
         userActionRequired: true,
         type: 'error',
       })
@@ -875,7 +875,7 @@ export async function checkInstall(
     } catch (e) {
       if (isENOENT(e)) {
         messages.push({
-          message: `installMethod is native, but claude command not found at ${dirs.executable}`,
+          message: `installMethod is native, but openclaude command not found at ${dirs.executable}`,
           userActionRequired: true,
           type: 'error',
         })
@@ -1458,7 +1458,7 @@ async function isNpmSymlink(executablePath: string): Promise<boolean> {
 }
 
 /**
- * Remove the claude symlink from the executable directory
+ * Remove the openclaude symlink from the executable directory
  * This is used when switching away from native installation
  * Will only remove if it's a native binary symlink, not npm-managed JS files
  */
@@ -1476,17 +1476,17 @@ export async function removeInstalledSymlink(): Promise<void> {
 
     // It's a native binary symlink, safe to remove
     await unlink(dirs.executable)
-    logForDebugging(`Removed claude symlink at ${dirs.executable}`)
+    logForDebugging(`Removed openclaude symlink at ${dirs.executable}`)
   } catch (error) {
     if (isENOENT(error)) {
       return
     }
-    logError(new Error(`Failed to remove claude symlink: ${error}`))
+    logError(new Error(`Failed to remove openclaude symlink: ${error}`))
   }
 }
 
 /**
- * Clean up old claude aliases from shell configuration files
+ * Clean up old OpenClaude aliases from shell configuration files
  * Only handles alias removal, not PATH setup
  */
 export async function cleanupShellAliases(): Promise<SetupMessage[]> {
@@ -1503,11 +1503,11 @@ export async function cleanupShellAliases(): Promise<SetupMessage[]> {
       if (hadAlias) {
         await writeFileLines(configFile, filtered)
         messages.push({
-          message: `Removed claude alias from ${configFile}. Run: unalias claude`,
+          message: `Removed OpenClaude local alias from ${configFile}. Restart your shell or run: unalias openclaude`,
           userActionRequired: true,
           type: 'alias',
         })
-        logForDebugging(`Cleaned up claude alias from ${shellType} config`)
+        logForDebugging(`Cleaned up OpenClaude alias from ${shellType} config`)
       }
     } catch (error) {
       logError(error)

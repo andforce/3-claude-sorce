@@ -18,16 +18,13 @@ export const getClaudeConfigHomeDir = memoize(
   () => process.env[OPENCLAUDE_CONFIG_DIR_ENV],
 )
 
-export function getConfiguredOriginalClaudeConfigDir(): string | undefined {
-  return process.env[OPENCLAUDE_CONFIG_DIR_ENV]
-}
-
+// Kept only for Claude.ai/Codex skill compatibility. This intentionally does
+// not follow OPENCLAUDE_CONFIG_DIR; OpenClaude's own user config lives under
+// getClaudeConfigHomeDir().
 export const getOriginalClaudeConfigHomeDir = memoize(
-    (): string => {
-      return (getConfiguredOriginalClaudeConfigDir() ?? join(homedir(), '.claude'))
-          .normalize('NFC')
-    },
-    () => process.env[OPENCLAUDE_CONFIG_DIR_ENV],
+  (): string => {
+    return join(homedir(), '.claude').normalize('NFC')
+  },
 )
 
 export function getTeamsDir(): string {

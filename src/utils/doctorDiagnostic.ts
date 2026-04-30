@@ -229,12 +229,12 @@ async function detectMultipleInstallations(): Promise<
     const npmPrefix = npmResult.stdout.trim()
     const isWindows = getPlatform() === 'windows'
 
-    // First check for active installations via bin/claude
-    // Linux / macOS have prefix/bin/claude and prefix/lib/node_modules
-    // Windows has prefix/claude and prefix/node_modules
+    // First check for active installations via bin/openclaude
+    // Linux / macOS have prefix/bin/openclaude and prefix/lib/node_modules
+    // Windows has prefix/openclaude and prefix/node_modules
     const globalBinPath = isWindows
-      ? join(npmPrefix, 'claude')
-      : join(npmPrefix, 'bin', 'claude')
+      ? join(npmPrefix, 'openclaude')
+      : join(npmPrefix, 'bin', 'openclaude')
 
     let globalBinExists = false
     try {
@@ -246,7 +246,7 @@ async function detectMultipleInstallations(): Promise<
 
     if (globalBinExists) {
       // Check if this is actually a Homebrew cask installation, not npm-global
-      // When npm is installed via Homebrew, both can exist at /opt/homebrew/bin/claude
+      // When npm is installed via Homebrew, both can exist at /opt/homebrew/bin/openclaude
       // We need to resolve the symlink to see where it actually points
       let isCurrentHomebrewInstallation = false
 
@@ -267,7 +267,7 @@ async function detectMultipleInstallations(): Promise<
         installations.push({ type: 'npm-global', path: globalBinPath })
       }
     } else {
-      // If no bin/claude exists, check for orphaned packages (no bin/claude symlink)
+      // If no bin/openclaude exists, check for orphaned packages (no bin/openclaude symlink)
       for (const packageName of packagesToCheck) {
         const globalPackagePath = isWindows
           ? join(npmPrefix, 'node_modules', packageName)
@@ -435,14 +435,14 @@ async function detectConfigurationIssues(
     if (type === 'npm-local' && config.installMethod !== 'local') {
       warnings.push({
         issue: `Running from local installation but config install method is '${config.installMethod}'`,
-        fix: 'Consider using native installation: claude install',
+        fix: 'Consider using native installation: openclaude install',
       })
     }
 
     if (type === 'native' && config.installMethod !== 'native') {
       warnings.push({
         issue: `Running native installation but config install method is '${config.installMethod}'`,
-        fix: 'Run claude install to update configuration',
+        fix: 'Run openclaude install to update configuration',
       })
     }
   }
@@ -580,7 +580,7 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     if (!hasUpdatePermissions && !getAutoUpdaterDisabledReason()) {
       warnings.push({
         issue: 'Insufficient permissions for auto-updates',
-        fix: 'Do one of: (1) Re-install node without sudo, or (2) Use `claude install` for native installation',
+        fix: 'Do one of: (1) Re-install node without sudo, or (2) Use `openclaude install` for native installation',
       })
     }
   }

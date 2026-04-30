@@ -533,7 +533,7 @@ To fix this issue:
 }
 
 /**
- * Remove claude aliases from shell configuration files
+ * Remove OpenClaude aliases from shell configuration files
  * This helps clean up old installation methods when switching to native or npm global
  */
 async function removeClaudeAliasesFromShellConfigs(): Promise<void> {
@@ -549,7 +549,7 @@ async function removeClaudeAliasesFromShellConfigs(): Promise<void> {
 
       if (hadAlias) {
         await writeFileLines(configFile, filtered)
-        logForDebugging(`Removed claude alias from ${configFile}`)
+        logForDebugging(`Removed OpenClaude alias from ${configFile}`)
       }
     } catch (error) {
       // Don't fail the whole operation if one file can't be processed
