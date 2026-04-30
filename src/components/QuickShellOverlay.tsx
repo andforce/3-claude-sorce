@@ -18,6 +18,7 @@ export type QuickShellProgress = {
 
 type Props = {
   visible: boolean
+  fullscreen?: boolean
   input: string
   cursorOffset: number
   runningCommand: string | null
@@ -65,6 +66,7 @@ function inputForTerminal(
 
 export function QuickShellOverlay({
   visible,
+  fullscreen = false,
   input,
   cursorOffset,
   runningCommand,
@@ -88,7 +90,7 @@ export function QuickShellOverlay({
   const isRunning = runningCommand !== null
   const inputColumns = Math.max(20, columns - 10)
   const outputWidth = Math.max(20, columns - 4)
-  const maxOutputRows = Math.max(4, rows - 8)
+  const maxOutputRows = fullscreen ? Math.max(4, rows - 6) : Math.max(4, rows - 8)
 
   useInput(
     (raw, key, event) => {
@@ -144,7 +146,7 @@ export function QuickShellOverlay({
       : idleOutput
   const outputLines = output ? toAnsiLines(output).slice(-maxOutputRows) : []
 
-  return (
+  const dialog = (
     <Dialog
       title="Quick Shell"
       subtitle={status}
@@ -191,5 +193,21 @@ export function QuickShellOverlay({
         ) : null}
       </Box>
     </Dialog>
+  )
+
+  if (!fullscreen) {
+    return dialog
+  }
+
+  return (
+    <Box
+      flexDirection="column"
+      height={Math.max(1, rows - 1)}
+      width="100%"
+      overflow="hidden"
+      opaque
+    >
+      {dialog}
+    </Box>
   )
 }
