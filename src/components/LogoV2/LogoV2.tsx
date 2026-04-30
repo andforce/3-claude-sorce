@@ -88,9 +88,6 @@ export function LogoV2() {
   const {
     hasReleaseNotes
   } = checkForReleaseNotesSync(config.lastReleaseNotesSeen);
-  const enableCondensedLogo = isEnvTruthy(
-    process.env.OPENCLAUDE_ENABLE_CONDENSED_LOGO,
-  );
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {
@@ -99,9 +96,6 @@ export function LogoV2() {
         return;
       }
       saveGlobalConfig(_temp3);
-      if (showOnboarding) {
-        incrementProjectOnboardingSeenCount();
-      }
     };
     $[2] = t2;
   } else {
@@ -116,14 +110,12 @@ export function LogoV2() {
     t3 = $[4];
   }
   useEffect(t2, t3);
-  let t4;
-  if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = enableCondensedLogo && !hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.CLAUDE_CODE_FORCE_FULL_LOGO);
-    $[5] = t4;
-  } else {
-    t4 = $[5];
-  }
-  const isCondensedMode = t4;
+  useEffect(() => {
+    if (showOnboarding) {
+      incrementProjectOnboardingSeenCount();
+    }
+  }, [showOnboarding]);
+  const isCondensedMode = !hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.CLAUDE_CODE_FORCE_FULL_LOGO);
   let t5;
   let t6;
   if ($[6] !== showGuestPassesUpsell) {
