@@ -82,10 +82,8 @@ cleanup_shell_alias_in_file() {
 
   : > "$temp_file"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+(claude|openclaude)[[:space:]]*= ]] &&
-       [[ "$line" == *"${HOME_DIR}/.openclaude/local/claude"* ||
-          "$line" == *"~/.openclaude/local/claude"* ||
-          "$line" == *"${HOME_DIR}/.openclaude/local/openclaude"* ||
+    if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+openclaude[[:space:]]*= ]] &&
+       [[ "$line" == *"${HOME_DIR}/.openclaude/local/openclaude"* ||
           "$line" == *"~/.openclaude/local/openclaude"* ]]; then
       removed=true
       continue
