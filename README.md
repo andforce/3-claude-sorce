@@ -1,19 +1,19 @@
-# Openclaude
+# OpenClaude
 
-基于 `@anthropic-ai/claude-code` 源码重建的终端版 Claude Code CLI（Bun 构建）。本仓库提供安装脚本与预编译二进制发布。
+基于 `@anthropic-ai/claude-code` 源码重建并独立分叉的终端版 OpenClaude CLI（Bun 构建）。本仓库提供安装脚本与预编译二进制发布。
 
 ## 安装
 
-在 **macOS / Linux**（需 **x64** 或 **arm64**）下，使用官方安装脚本一键安装到 `~/.local/bin/claude`：
+在 **macOS / Linux**（需 **x64** 或 **arm64**）下，使用安装脚本一键安装到 `~/.local/bin/openclaude`：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andforce/Openclaude/open/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/andforce/Openclaude/openclaude/install.sh | bash
 ```
 
 **指定版本**（格式 `x.x.x`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andforce/Openclaude/open/install.sh | bash -s -- 2.1.88
+curl -fsSL https://raw.githubusercontent.com/andforce/Openclaude/openclaude/install.sh | bash -s -- 2.1.88
 ```
 
 **依赖**：系统需有 `curl` 或 `wget`；安装脚本会优先使用 `jq` 解析 GitHub API，没有 `jq` 时会用纯 shell 回退解析。
@@ -27,7 +27,15 @@ export PATH="$HOME/.local/bin:$PATH"
 安装完成后可执行：
 
 ```bash
-claude --help
+openclaude --help
+```
+
+## 数据目录
+
+OpenClaude 默认将运行时配置、会话、插件、缓存等数据写入 `~/.openclaude`。如需自定义位置，可设置：
+
+```bash
+export OPENCLAUDE_CONFIG_DIR="$HOME/.config/openclaude"
 ```
 
 ## 斜杠命令（节选）

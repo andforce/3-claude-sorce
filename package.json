@@ -4,9 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "~/.bun/bin/bun-darwin-aarch64/bun run build.ts",
-    "start": "~/.bun/bin/bun-darwin-aarch64/bun dist/cli.js",
-    "dev": "~/.bun/bin/bun-darwin-aarch64/bun src/entrypoints/cli.tsx"
+    "build": "npx --yes bun@1.3.11 run build.ts",
+    "start": "npx --yes bun@1.3.11 dist/cli.js",
+    "dev": "npx --yes bun@1.3.11 src/entrypoints/cli.tsx"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "*",
