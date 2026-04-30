@@ -112,6 +112,6 @@
     "typescript": "*"
   },
   "bin": {
-    "claude": "./bin/claude.cjs"
+    "openclaude": "./bin/openclaude.cjs"
   }
 }

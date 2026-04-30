@@ -500,7 +500,7 @@
 
 **功能**
 - 拉取远程受管设置
-- 缓存到 `~/.claude/remote-settings.json`
+- 缓存到 `~/.openclaude/remote-settings.json`
 
 **相关调用位置**
 - `src/services/remoteManagedSettings/syncCache.ts`

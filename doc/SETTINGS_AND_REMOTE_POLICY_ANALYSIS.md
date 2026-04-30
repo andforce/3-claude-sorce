@@ -91,7 +91,7 @@ Claude Code 的 settings 架构不是简单“读几个 json 配置”。
 ### 5.1 本地缓存
 
 remote settings 会缓存到：
-- `~/.claude/remote-settings.json`
+- `~/.openclaude/remote-settings.json`
 
 ### 5.2 eligibility 不是默认 true
 

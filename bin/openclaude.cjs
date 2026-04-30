@@ -2,7 +2,7 @@
 
 (async () => {
   await import('../dist/cli.js')
-})().catch((error) => {
+})().catch(error => {
   console.error(error)
   process.exit(1)
 })

@@ -104,7 +104,8 @@ built-in plugin skill：
 
 会扫描：
 - managed `.claude/skills`
-- user `~/.claude/skills`
+- user `~/.openclaude/skills`
+- compatibility user `~/.claude/skills`
 - 从 cwd 到 git root 之间所有 project `.claude/skills`
 - `--add-dir` 提供的 project-like 根
 

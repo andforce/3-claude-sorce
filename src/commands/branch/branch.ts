@@ -273,7 +273,7 @@ export async function call(
 
     // Resume into the fork
     const titleInfo = title ? ` "${title}"` : ''
-    const resumeHint = `\nTo resume the original: claude -r ${originalSessionId}`
+    const resumeHint = `\nTo resume the original: openclaude -r ${originalSessionId}`
     const successMessage = `Branched conversation${titleInfo}. You are now in the branch.${resumeHint}`
 
     if (context.resume) {

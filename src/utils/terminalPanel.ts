@@ -26,13 +26,13 @@ const TMUX_SESSION = 'panel'
 
 /**
  * Get the tmux socket name for the terminal panel.
- * Uses a unique socket per Claude Code instance (based on session ID)
+ * Uses a unique socket per OpenClaude instance (based on session ID)
  * so that each instance has its own isolated terminal panel.
  */
 export function getTerminalPanelSocket(): string {
   // Use first 8 chars of session UUID for uniqueness while keeping name short
   const sessionId = getSessionId()
-  return `claude-panel-${sessionId.slice(0, 8)}`
+  return `openclaude-panel-${sessionId.slice(0, 8)}`
 }
 
 let instance: TerminalPanel | undefined

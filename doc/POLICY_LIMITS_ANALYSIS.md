@@ -88,7 +88,7 @@ policy limits 明显是面向 Anthropic 自己控制面的，不是 provider-agn
 
 缓存会：
 - 保存在内存
-- 持久化到 `~/.claude/policy-limits.json`
+- 持久化到 `~/.openclaude/policy-limits.json`
 - 权限 0600
 - 使用 checksum / `If-None-Match` 做一致性
 - 每 1 小时后台 poll 更新

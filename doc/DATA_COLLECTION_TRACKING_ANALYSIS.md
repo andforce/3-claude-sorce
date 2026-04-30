@@ -160,7 +160,7 @@ type ProcessMetrics = {
 
 | 标识符 | 来源 | 持久性 | 说明 |
 |-------|------|--------|------|
-| `userID` (device_id) | `~/.claude/config.json` | 永久 | `randomBytes(32).toString('hex')` |
+| `userID` (device_id) | `~/.openclaude.json` | 永久 | `randomBytes(32).toString('hex')` |
 | `sessionId` | 启动时生成 | 单次会话 | 每次进程启动新建 |
 | `accountUuid` | Claude.ai OAuth | 账户级 | `_PROTO_*` PII 标记 |
 | `organizationUuid` | 企业 OAuth | 组织级 | `_PROTO_*` PII 标记 |
@@ -240,7 +240,7 @@ type AgentIdentification = {
 
 特征：
 - 独立 OTel LoggerProvider（与客户 OTLP endpoint 隔离）
-- 失败 batch 落盘 `~/.claude/telemetry/` 为 JSONL
+- 失败 batch 落盘 `~/.openclaude/telemetry/` 为 JSONL
 - 下次启动重试残留文件
 - backoff + 401 后 unauthenticated retry
 - sink killswitch 远程动态关闭
@@ -290,7 +290,7 @@ Client Keys:
 ```
 
 双级缓存：
-- 磁盘缓存 24h TTL — 进程重启存活，N 次 `claude -p` 合并为 ~1 次/天 API 调用
+- 磁盘缓存 24h TTL — 进程重启存活，N 次 `openclaude -p` 合并为 ~1 次/天 API 调用
 - 内存缓存 1h TTL — 进程内去重
 
 essential-traffic 模式下不请求。
@@ -631,7 +631,7 @@ GrowthBook 动态配置，可按 sink 级别远程关闭：
 ### 9.1 设备/用户识别链路
 
 ```
-deviceId (永久, ~/.claude/config.json)
+deviceId (永久, ~/.openclaude.json)
   └→ sessionId (单次进程)
        └→ accountUuid (Claude.ai OAuth, 账户级)
             └→ organizationUuid (企业 OAuth, 组织级)
