@@ -26,6 +26,30 @@ type Match = {
   isDirectory: boolean
 }
 
+const UNQUOTED_ESCAPE_CHARS = new Set([
+  '\\',
+  '"',
+  "'",
+  '$',
+  '`',
+  '!',
+  '&',
+  '|',
+  ';',
+  '<',
+  '>',
+  '(',
+  ')',
+  '{',
+  '}',
+  '[',
+  ']',
+  '*',
+  '?',
+  '~',
+  '#',
+])
+
 function tokenAtCursor(input: string, cursorOffset: number): TokenInfo {
   const end = Math.max(0, Math.min(cursorOffset, input.length))
   let start = 0
@@ -83,14 +107,34 @@ function decodeToken(token: string): DecodedToken {
   return { value, quote }
 }
 
-function encodeToken(value: string, quote: "'" | '"' | null, complete: boolean): string {
+function encodeToken(
+  value: string,
+  quote: "'" | '"' | null,
+  complete: boolean,
+  preserveHomeExpansion: boolean,
+): string {
   if (quote === "'") {
     return `'${value.replace(/'/g, `'\\''`)}${complete ? "' " : ''}`
   }
   if (quote === '"') {
     return `"${value.replace(/(["\\$`])/g, '\\$1')}${complete ? '" ' : ''}`
   }
-  const escaped = value.replace(/([\\\s"'$`!&|;<>(){}[\]*?~#])/g, '\\$1')
+  let escaped = ''
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]!
+    if (
+      preserveHomeExpansion &&
+      index === 0 &&
+      char === '~' &&
+      value.startsWith('~/')
+    ) {
+      escaped += char
+    } else if (/\s/.test(char) || UNQUOTED_ESCAPE_CHARS.has(char)) {
+      escaped += `\\${char}`
+    } else {
+      escaped += char
+    }
+  }
   return escaped + (complete ? ' ' : '')
 }
 
@@ -189,8 +233,16 @@ export async function completeQuickShellInput(
     return { input, cursorOffset, output: '' }
   }
 
+  const preserveHomeExpansion =
+    decoded.quote === null && decoded.value.startsWith('~/')
+
   const replaceToken = (value: string, complete: boolean): QuickShellCompletionResult => {
-    const replacement = encodeToken(value, decoded.quote, complete)
+    const replacement = encodeToken(
+      value,
+      decoded.quote,
+      complete,
+      preserveHomeExpansion,
+    )
     return {
       input: input.slice(0, token.start) + replacement + input.slice(token.end),
       cursorOffset: token.start + replacement.length,
