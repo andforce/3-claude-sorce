@@ -46,6 +46,10 @@ type Props = {
    *  ScrollBox AND bottom slot. Provides ModalContext so Pane/Dialog inside
    *  skip their own frame. Fullscreen only; inline after overlay otherwise. */
   modal?: ReactNode;
+  /** When true, modal covers the full terminal instead of leaving
+   *  transcript context visible above it. Used by Quick Shell's isolated
+   *  alternate-screen mode. */
+  fullscreenModal?: boolean;
   /** Ref passed via ModalContext so Tabs (or any scroll-owning descendant)
    *  can attach it to their own ScrollBox for tall content. */
   modalScrollRef?: React.RefObject<ScrollBoxHandle | null>;
@@ -268,7 +272,7 @@ export function computeUnseenDivider(messages: readonly Message[], dividerIndex:
  * so nothing can accidentally render outside it.
  */
 export function FullscreenLayout(t0) {
-  const $ = _c(47);
+  const $ = _c(48);
   const {
     scrollable,
     bottom,
@@ -276,6 +280,7 @@ export function FullscreenLayout(t0) {
     bottomFloat,
     modal,
     modalScrollRef,
+    fullscreenModal: tFullscreenModal,
     scrollRef,
     dividerYRef,
     hidePill: t1,
@@ -286,6 +291,7 @@ export function FullscreenLayout(t0) {
   const hidePill = t1 === undefined ? false : t1;
   const hideSticky = t2 === undefined ? false : t2;
   const newMessageCount = t3 === undefined ? 0 : t3;
+  const fullscreenModal = tFullscreenModal === undefined ? false : tFullscreenModal;
   const {
     rows: terminalRows,
     columns
@@ -335,7 +341,7 @@ export function FullscreenLayout(t0) {
     t7 = $[6];
   }
   useLayoutEffect(_temp3, t7);
-  if (isFullscreenEnvEnabled()) {
+  if (isFullscreenEnvEnabled() || fullscreenModal) {
     const sticky = hideSticky ? null : stickyPrompt;
     const headerPrompt = sticky != null && sticky !== "clicked" && overlay == null ? sticky : null;
     const padCollapsed = sticky != null && overlay == null;
@@ -418,17 +424,18 @@ export function FullscreenLayout(t0) {
       t17 = $[32];
     }
     let t18;
-    if ($[33] !== columns || $[34] !== modal || $[35] !== modalScrollRef || $[36] !== terminalRows) {
+    if ($[33] !== columns || $[34] !== modal || $[35] !== modalScrollRef || $[36] !== terminalRows || $[47] !== fullscreenModal) {
       t18 = modal != null && <ModalContext value={{
-        rows: terminalRows - MODAL_TRANSCRIPT_PEEK - 1,
+        rows: fullscreenModal ? Math.max(1, terminalRows - 1) : terminalRows - MODAL_TRANSCRIPT_PEEK - 1,
         columns: columns - 4,
         scrollRef: modalScrollRef ?? null
-      }}><Box position="absolute" bottom={0} left={0} right={0} maxHeight={terminalRows - MODAL_TRANSCRIPT_PEEK} flexDirection="column" overflow="hidden" opaque={true}><Box flexShrink={0}><Text color="permission">{"\u2594".repeat(columns)}</Text></Box><Box flexDirection="column" paddingX={2} flexShrink={0} overflow="hidden">{modal}</Box></Box></ModalContext>;
+      }}><Box position="absolute" top={fullscreenModal ? 0 : undefined} bottom={0} left={0} right={0} height={fullscreenModal ? terminalRows : undefined} maxHeight={fullscreenModal ? terminalRows : terminalRows - MODAL_TRANSCRIPT_PEEK} flexDirection="column" overflow="hidden" opaque={true}><Box flexShrink={0}><Text color="permission">{"\u2594".repeat(columns)}</Text></Box><Box flexDirection="column" paddingX={2} flexShrink={fullscreenModal ? 1 : 0} flexGrow={fullscreenModal ? 1 : undefined} overflow="hidden">{modal}</Box></Box></ModalContext>;
       $[33] = columns;
       $[34] = modal;
       $[35] = modalScrollRef;
       $[36] = terminalRows;
       $[37] = t18;
+      $[47] = fullscreenModal;
     } else {
       t18 = $[37];
     }

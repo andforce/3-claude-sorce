@@ -287,6 +287,7 @@ import { ScrollKeybindingHandler } from '../components/ScrollKeybindingHandler.j
 import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type MessageActionsState, type MessageActionsNav, type MessageActionCaps } from '../components/messageActions.js';
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
+import instances from '../ink/instances.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
 import { QuickShellOverlay, type QuickShellProgress } from '../components/QuickShellOverlay.js';
 import type { ExecResult } from '../utils/Shell.js';
@@ -1122,12 +1123,22 @@ export function REPL({
   const quickShellCommandRef = useRef<QuickShellCommand | null>(null);
   const quickShellProgressRef = useRef<QuickShellProgress | null>(null);
 
-  const handleToggleQuickShell = useCallback(() => {
-    setQuickShellVisible(visible => !visible);
+  const redrawAfterQuickShellClose = useCallback(() => {
+    setTimeout(() => instances.get(process.stdout)?.forceRedraw(), 0);
   }, []);
+  const handleToggleQuickShell = useCallback(() => {
+    setQuickShellVisible(visible => {
+      const next = !visible;
+      if (!next) {
+        redrawAfterQuickShellClose();
+      }
+      return next;
+    });
+  }, [redrawAfterQuickShellClose]);
   const handleCloseQuickShell = useCallback(() => {
     setQuickShellVisible(false);
-  }, []);
+    redrawAfterQuickShellClose();
+  }, [redrawAfterQuickShellClose]);
   const handleInterruptQuickShell = useCallback(() => {
     const shellCommand = quickShellCommandRef.current;
     if (shellCommand) {
@@ -1140,7 +1151,8 @@ export function REPL({
       return;
     }
     setQuickShellVisible(false);
-  }, []);
+    redrawAfterQuickShellClose();
+  }, [redrawAfterQuickShellClose]);
   const handleQuickShellWriteInput = useCallback((input: string) => {
     quickShellCommandRef.current?.write(input);
   }, []);
@@ -4544,7 +4556,7 @@ export function REPL({
     quickShellVisible,
     onToggleQuickShell: handleToggleQuickShell
   };
-  const quickShellOverlay: React.ReactNode = focusedInputDialog === 'quick-shell' ? <QuickShellOverlay visible={quickShellVisible} input={quickShellInput} cursorOffset={quickShellCursorOffset} runningCommand={quickShellRunningCommand} progress={quickShellProgress} result={quickShellResult} finalOutput={quickShellFinalOutput} idleOutput={quickShellIdleOutput} verbose={verbose} onInputChange={value => {
+  const quickShellOverlay: React.ReactNode = focusedInputDialog === 'quick-shell' ? <QuickShellOverlay visible={quickShellVisible} fullscreen input={quickShellInput} cursorOffset={quickShellCursorOffset} runningCommand={quickShellRunningCommand} progress={quickShellProgress} result={quickShellResult} finalOutput={quickShellFinalOutput} idleOutput={quickShellIdleOutput} verbose={verbose} onInputChange={value => {
     setQuickShellInput(value);
     setQuickShellHistoryIndex(null);
     setQuickShellIdleOutput('');
@@ -4599,11 +4611,11 @@ export function REPL({
       // gets yellow. Next n/N re-establishes via step()→jump().
       onScroll={() => jumpRef.current?.disarmSearch()} /> : null}
         <CancelRequestHandler {...cancelRequestProps} />
-        {transcriptScrollRef ? <FullscreenLayout scrollRef={scrollRef} scrollable={<>
+        {transcriptScrollRef || quickShellVisible ? <FullscreenLayout scrollRef={transcriptScrollRef ?? scrollRef} scrollable={<>
                 {transcriptMessagesElement}
                 {transcriptToolJSX}
                 <SandboxViolationExpandedView />
-              </>} modal={quickShellOverlay} bottom={searchOpen ? <TranscriptSearchBar jumpRef={jumpRef}
+              </>} modal={quickShellOverlay} fullscreenModal={quickShellVisible} bottom={searchOpen ? <TranscriptSearchBar jumpRef={jumpRef}
       // Seed was tried (c01578c8) — broke /hello muscle
       // memory (cursor lands after 'foo', /hello → foohello).
       // Cancel-restore handles the 'don't lose prior search'
@@ -4654,7 +4666,7 @@ export function REPL({
     // normal mode's wrap below so React reconciles and the alt buffer
     // stays entered across toggle. The 30-cap dump branch stays
     // unwrapped — it wants native terminal scrollback.
-    if (transcriptScrollRef) {
+    if (transcriptScrollRef || quickShellVisible) {
       return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
           {transcriptReturn}
         </AlternateScreen>;
@@ -4736,7 +4748,7 @@ export function REPL({
       {feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? <MessageActionsKeybindings handlers={messageActionHandlers} isActive={cursor !== null} /> : null}
       <CancelRequestHandler {...cancelRequestProps} />
       <MCPConnectionManager key={remountKey} dynamicMcpConfig={dynamicMcpConfig} isStrictMcpConfig={strictMcpConfig}>
-        <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={true && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={activeModal} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
+        <FullscreenLayout scrollRef={scrollRef} overlay={toolPermissionOverlay} bottomFloat={true && companionVisible && !companionNarrow ? <CompanionFloatingBubble /> : undefined} modal={activeModal} fullscreenModal={quickShellVisible} modalScrollRef={modalScrollRef} dividerYRef={dividerYRef} hidePill={!!viewedAgentTask} hideSticky={!!viewedTeammateTask} newMessageCount={unseenDivider?.count ?? 0} onPillClick={() => {
         setCursor(null);
         jumpToNew(scrollRef.current);
       }} scrollable={<>
@@ -5170,7 +5182,7 @@ export function REPL({
             </Box>} />
       </MCPConnectionManager>
     </KeybindingSetup>;
-  if (isFullscreenEnvEnabled()) {
+  if (isFullscreenEnvEnabled() || quickShellVisible) {
     return <AlternateScreen mouseTracking={isMouseTrackingEnabled()}>
         {mainReturn}
       </AlternateScreen>;
